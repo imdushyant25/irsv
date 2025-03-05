@@ -1,0 +1,10 @@
+{
+  "/api/opportunities/[opportunityId]/files/route": "app/api/opportunities/[opportunityId]/files/route.js",
+  "/opportunities/[opportunityId]/files/page": "app/opportunities/[opportunityId]/files/page.js",
+  "/opportunities/[opportunityId]/files/[fileId]/page": "app/opportunities/[opportunityId]/files/[fileId]/page.js",
+  "/opportunities/[opportunityId]/page": "app/opportunities/[opportunityId]/page.js",
+  "/opportunities/[opportunityId]/files/[fileId]/claims/page": "app/opportunities/[opportunityId]/files/[fileId]/claims/page.js",
+  "/api/files/[fileId]/route": "app/api/files/[fileId]/route.js",
+  "/api/files/[fileId]/claims/route": "app/api/files/[fileId]/claims/route.js",
+  "/api/files/[fileId]/claims/summary/route": "app/api/files/[fileId]/claims/summary/route.js"
+}

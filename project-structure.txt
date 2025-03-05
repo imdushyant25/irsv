@@ -1,0 +1,108 @@
+.
+├── README.md
+├── lambda
+│   ├── exportProcessor
+│   │   └── index.ts
+│   ├── fileProcessor
+│   │   └── index.ts
+│   └── mappingProcessor
+│       └── index.ts
+├── next-env.d.ts
+├── next.config.js
+├── package-lock.json
+├── package.json
+├── project-structure.txt
+├── scripts
+│   ├── db-migration.sql
+│   ├── run-migration.sh
+│   └── seed-data.sql
+├── src
+│   ├── app
+│   │   ├── api
+│   │   │   ├── files
+│   │   │   │   ├── [fileId]
+│   │   │   │   │   ├── mapping
+│   │   │   │   │   │   └── route.ts
+│   │   │   │   │   ├── route.ts
+│   │   │   │   │   └── status
+│   │   │   │   │       └── route.ts
+│   │   │   │   └── upload
+│   │   │   │       └── route.ts
+│   │   │   ├── health
+│   │   │   │   └── route.ts
+│   │   │   ├── mapping
+│   │   │   │   ├── standard-fields
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── templates
+│   │   │   │       └── route.ts
+│   │   │   └── opportunities
+│   │   │       ├── [opportunityId]
+│   │   │       │   ├── files
+│   │   │       │   │   ├── [fileId]
+│   │   │       │   │   │   └── route.ts
+│   │   │       │   │   └── route.ts
+│   │   │       │   ├── layout.tsx
+│   │   │       │   ├── page.tsx
+│   │   │       │   └── route.ts
+│   │   │       └── route.ts
+│   │   ├── layout.tsx
+│   │   ├── opportunities
+│   │   │   ├── [opportunityId]
+│   │   │   │   ├── components
+│   │   │   │   │   ├── OpportunityTabs.tsx
+│   │   │   │   │   └── tabs
+│   │   │   │   │       ├── FilesTab.tsx
+│   │   │   │   │       ├── MappingTab.tsx
+│   │   │   │   │       └── OverviewTab.tsx
+│   │   │   │   ├── files
+│   │   │   │   │   ├── [fileId]
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   └── page.tsx
+│   │   ├── page.tsx
+│   │   └── providers.tsx
+│   ├── components
+│   │   ├── common
+│   │   │   └── Pagination.tsx
+│   │   ├── files
+│   │   │   ├── FileList.tsx
+│   │   │   └── FileUpload.tsx
+│   │   ├── layout
+│   │   │   ├── Navbar.tsx
+│   │   │   ├── PageContainer.tsx
+│   │   │   └── Sidebar.tsx
+│   │   ├── mapping
+│   │   │   ├── EnhancedMappingInterface.tsx
+│   │   │   ├── FieldSelector.tsx
+│   │   │   ├── MappingInterface.tsx
+│   │   │   └── MappingPreview.tsx
+│   │   └── opportunities
+│   │       ├── OpportunityCard.tsx
+│   │       └── OpportunityList.tsx
+│   ├── lib
+│   │   ├── api
+│   │   │   └── endpoints.ts
+│   │   ├── aws
+│   │   │   ├── lambda.ts
+│   │   │   └── s3.ts
+│   │   ├── db
+│   │   │   ├── index.ts
+│   │   │   ├── opportunities.ts
+│   │   │   └── schema.sql
+│   │   └── errors
+│   │       └── database.ts
+│   ├── theme
+│   │   └── index.ts
+│   ├── types
+│   │   ├── file.ts
+│   │   ├── mapping.ts
+│   │   └── opportunity.ts
+│   └── utils
+│       ├── excel.ts
+│       ├── format.ts
+│       ├── string.ts
+│       └── validation.ts
+└── tsconfig.json
+
+42 directories, 64 files
