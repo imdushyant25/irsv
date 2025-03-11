@@ -8,10 +8,10 @@ import {
   
   // Validate required environment variables
   const requiredEnvVars = [
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_REGION',
-    'AWS_S3_BUCKET'
+    'CUSTOM_AWS_ACCESS_KEY_ID',
+    'CUSTOM_AWS_SECRET_ACCESS_KEY',
+    'CUSTOM_AWS_REGION',
+    'CUSTOM_AWS_S3_BUCKET'
   ];
   
   requiredEnvVars.forEach(envVar => {
@@ -22,10 +22,10 @@ import {
   
   // Initialize S3 client
   const s3Client = new S3Client({
-    region: process.env.AWS_REGION!,
+    region: process.env.CUSTOM_AWS_REGION!,
     credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
+      accessKeyId: process.env.CUSTOM_AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.CUSTOM_AWS_SECRET_ACCESS_KEY!
     }
   });
   
@@ -44,7 +44,7 @@ import {
     try {
       await s3Client.send(
         new PutObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET,
+          Bucket: process.env.CUSTOM_AWS_S3_BUCKET,
           Key: key,
           Body: file,
           ContentType: contentType
@@ -67,7 +67,7 @@ import {
     try {
       const response = await s3Client.send(
         new GetObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET,
+          Bucket: process.env.CUSTOM_AWS_S3_BUCKET,
           Key: key
         })
       );
@@ -96,7 +96,7 @@ import {
   ): Promise<string> => {
     try {
       const command = new GetObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET,
+        Bucket: process.env.CUSTOM_AWS_S3_BUCKET,
         Key: key
       });
       
