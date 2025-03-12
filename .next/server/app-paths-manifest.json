@@ -1,9 +1,6 @@
 {
-  "/opportunities/[opportunityId]/files/page": "app/opportunities/[opportunityId]/files/page.js",
-  "/opportunities/[opportunityId]/files/[fileId]/page": "app/opportunities/[opportunityId]/files/[fileId]/page.js",
-  "/opportunities/page": "app/opportunities/page.js",
   "/opportunities/[opportunityId]/page": "app/opportunities/[opportunityId]/page.js",
-  "/api/opportunities/[opportunityId]/files/route": "app/api/opportunities/[opportunityId]/files/route.js",
-  "/api/opportunities/route": "app/api/opportunities/route.js",
-  "/api/opportunities/[opportunityId]/route": "app/api/opportunities/[opportunityId]/route.js"
+  "/api/opportunities/[opportunityId]/route": "app/api/opportunities/[opportunityId]/route.js",
+  "/opportunities/[opportunityId]/files/page": "app/opportunities/[opportunityId]/files/page.js",
+  "/opportunities/[opportunityId]/files/[fileId]/page": "app/opportunities/[opportunityId]/files/[fileId]/page.js"
 }

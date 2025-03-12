@@ -1,4 +1,5 @@
-// File: src/components/processing/ProcessingStatus.tsx
+// File: src/components/processing/ProcessingStatus.tsx (updated version)
+
 import React, { useEffect, useState } from 'react';
 import {
   Box,
@@ -17,7 +18,7 @@ import {
   HStack,
   Badge
 } from '@chakra-ui/react';
-import { AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, RefreshCw, CheckCircle2, Wand2 } from 'lucide-react';
 import { ProcessingStatus, ProcessingProgress } from '@/types/claims-processing';
 import { FileStatus } from '@/types/file';
 
@@ -36,6 +37,7 @@ export default function ProcessingStatusComponent({
   const [progress, setProgress] = useState<ProcessingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(true);
+  const [processingMode, setProcessingMode] = useState<'standard' | 'combined'>('standard');
   const toast = useToast();
 
   const pollStatus = async () => {
@@ -48,6 +50,11 @@ export default function ProcessingStatusComponent({
       const data = await response.json();
       setStatus(data.status);
       setProgress(data.progress);
+      
+      // Set processing mode if it's included in the response
+      if (data.processingMode) {
+        setProcessingMode(data.processingMode);
+      }
 
       if (data.error) {
         setError(data.error.message);
@@ -58,13 +65,25 @@ export default function ProcessingStatusComponent({
       if (data.status === ProcessingStatus.COMPLETED) {
         setIsPolling(false);
         onComplete?.();
-        toast({
-          title: 'Processing Complete',
-          description: 'File has been successfully processed',
-          status: 'success',
-          duration: 5000,
-          isClosable: true,
-        });
+        
+        // Show different toast based on the processing mode
+        if (processingMode === 'combined') {
+          toast({
+            title: 'Processing & Enrichment Complete',
+            description: 'File has been processed and enriched successfully',
+            status: 'success',
+            duration: 5000,
+            isClosable: true,
+          });
+        } else {
+          toast({
+            title: 'Processing Complete',
+            description: 'File has been successfully processed',
+            status: 'success',
+            duration: 5000,
+            isClosable: true,
+          });
+        }
       }
     } catch (error) {
       console.error('Error polling status:', error);
@@ -130,6 +149,7 @@ export default function ProcessingStatusComponent({
       case ProcessingStatus.ERROR:
         return 'red';
       case ProcessingStatus.PROCESSING:
+      case ProcessingStatus.PROCESSING_COMBINED:
         return 'blue';
       default:
         return 'gray';
@@ -141,22 +161,33 @@ export default function ProcessingStatusComponent({
       <CardBody>
         <VStack spacing={4} align="stretch">
           <HStack justify="space-between">
-            <Text fontWeight="bold">Processing Status</Text>
+            <HStack>
+              <Text fontWeight="bold">Processing Status</Text>
+              {processingMode === 'combined' && (
+                <Badge colorScheme="purple" display="flex" alignItems="center">
+                  <HStack spacing={1}>
+                    <Text>Combined</Text>
+                    <Wand2 size={12} />
+                  </HStack>
+                </Badge>
+              )}
+            </HStack>
             <Badge colorScheme={getStatusColor(status)}>
               {status}
             </Badge>
           </HStack>
 
-          {status === ProcessingStatus.PROCESSING && progress && (
+          {(status === ProcessingStatus.PROCESSING || status === ProcessingStatus.PROCESSING_COMBINED) && progress && (
             <Box>
               <Progress 
                 value={progress.processedRows / progress.totalRows * 100} 
                 size="sm" 
-                colorScheme="blue"
+                colorScheme={processingMode === 'combined' ? 'purple' : 'blue'}
                 mb={2}
               />
               <Text fontSize="sm" color="gray.600">
                 Processed {progress.processedRows} of {progress.totalRows} rows
+                {processingMode === 'combined' && ' (with enrichment)'}
               </Text>
             </Box>
           )}
@@ -164,17 +195,29 @@ export default function ProcessingStatusComponent({
           {status === ProcessingStatus.PENDING && (
             <HStack>
               <Spinner size="sm" />
-              <Text>Initializing processing...</Text>
+              <Text>
+                {processingMode === 'combined' 
+                  ? 'Initializing combined processing & enrichment...'
+                  : 'Initializing processing...'}
+              </Text>
             </HStack>
           )}
 
           {status === ProcessingStatus.COMPLETED && (
             <Alert status="success" variant="subtle">
               <AlertIcon as={CheckCircle2} />
-              <AlertTitle>Processing Complete</AlertTitle>
-              <AlertDescription>
-                All rows have been successfully processed
-              </AlertDescription>
+              <Box>
+                <AlertTitle>
+                  {processingMode === 'combined' 
+                    ? 'Processing & Enrichment Complete'
+                    : 'Processing Complete'}
+                </AlertTitle>
+                <AlertDescription>
+                  {processingMode === 'combined' 
+                    ? 'All rows have been successfully processed and enriched'
+                    : 'All rows have been successfully processed'}
+                </AlertDescription>
+              </Box>
             </Alert>
           )}
 

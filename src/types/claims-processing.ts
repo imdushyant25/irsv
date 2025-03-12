@@ -3,6 +3,7 @@
 export enum ProcessingStatus {
     PENDING = 'PENDING',
     PROCESSING = 'PROCESSING',
+    PROCESSING_COMBINED = 'PROCESSING_COMBINED',
     COMPLETED = 'COMPLETED',
     ERROR = 'ERROR'
 }
@@ -15,6 +16,7 @@ export interface ProcessingHistory {
     status: ProcessingStatus;
     totalRows: number;
     processedRows: number;
+    processingMode?: 'standard' | 'combined';
     errorDetails?: {
         message: string;
         details?: Record<string, any>;

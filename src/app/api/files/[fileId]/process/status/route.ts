@@ -1,4 +1,4 @@
-// File: src/app/api/files/[fileId]/process/status/route.ts
+// File: src/app/api/files/[fileId]/process/status/route.ts (updated version)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
@@ -27,7 +27,8 @@ export async function GET(
         processed_rows as "processedRows",
         error_details as "errorDetails",
         start_time as "startTime",
-        end_time as "endTime"
+        end_time as "endTime",
+        processing_mode as "processingMode"
       FROM claim_processing_history
       WHERE file_id = $1
       ORDER BY created_at DESC
@@ -58,7 +59,8 @@ export async function GET(
       },
       startTime: processingRecord.startTime,
       endTime: processingRecord.endTime,
-      processingId: processingRecord.processingId
+      processingId: processingRecord.processingId,
+      processingMode: processingRecord.processingMode || 'standard'
     };
 
     // Add error details if present

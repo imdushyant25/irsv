@@ -43,6 +43,7 @@ import { FileText, AlertCircle, ArrowRight, Play, Wand2 } from 'lucide-react';
 import { formatFileSize, formatDate } from '@/utils/format';
 import ProcessingStatus from '@/components/processing/ProcessingStatus';
 import EnrichmentStatus from '@/components/processing/EnrichmentStatus';
+import ProcessFileButton from '@/components/processing/ProcessFileButton'; // Import our new component
 
 export interface FileListProps {
   files: FileRecord[];
@@ -107,35 +108,13 @@ export function FileList({
     }
   };
 
-  const handleProcessFile = async (fileId: string) => {
-    try {
-      const response = await fetch(`/api/files/${fileId}/process`, {
-        method: 'POST'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to start processing');
-      }
-
-      setProcessingFileId(fileId);
-      
-      toast({
-        title: 'Processing Started',
-        description: 'File processing has been initiated',
-        status: 'info',
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error) {
-      console.error('Error starting processing:', error);
-      toast({
-        title: 'Processing Failed',
-        description: error instanceof Error ? error.message : 'Failed to start processing',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-    }
+  const handleProcessStart = (fileId: string) => {
+    setProcessingFileId(fileId);
+    
+    // After starting processing, refresh the file list in a moment
+    setTimeout(() => {
+      refreshFiles();
+    }, 1000);
   };
 
   const handleEnrichFile = async (fileId: string) => {
@@ -315,16 +294,15 @@ export function FileList({
                             </Button>
                           )}
 
+                          {/* Replace the old Process File button with our new component */}
                           {file.status === FileStatus.MAPPED && (
-                            <Button
-                              size="sm"
-                              leftIcon={<Play size={16} />}
-                              onClick={() => handleProcessFile(file.fileId)}
-                              colorScheme="green"
-                              variant="outline"
-                            >
-                              Process File
-                            </Button>
+                            <ProcessFileButton
+                              fileId={file.fileId}
+                              fileName={file.originalFilename}
+                              status={file.status}
+                              rowCount={file.rowCount}
+                              onProcessingStart={() => handleProcessStart(file.fileId)}
+                            />
                           )}
                         </>
                       )}

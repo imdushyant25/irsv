@@ -1,8 +1,8 @@
-// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/api/files/[fileId]/enrichment/route.ts
-import * as entry from '../../../../../../../src/app/api/files/[fileId]/enrichment/route.js'
+// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/api/files/[fileId]/claims/export/route.ts
+import * as entry from '../../../../../../../../src/app/api/files/[fileId]/claims/export/route.js'
 import type { NextRequest } from 'next/server.js'
 
-type TEntry = typeof import('../../../../../../../src/app/api/files/[fileId]/enrichment/route.js')
+type TEntry = typeof import('../../../../../../../../src/app/api/files/[fileId]/claims/export/route.js')
 
 // Check that the entry is a valid entry
 checkFields<Diff<{
