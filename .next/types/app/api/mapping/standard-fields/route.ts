@@ -1,4 +1,4 @@
-// File: /Users/dushyantsingh/Documents/illuminate-rx copy/src/app/api/mapping/standard-fields/route.ts
+// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/api/mapping/standard-fields/route.ts
 import * as entry from '../../../../../../src/app/api/mapping/standard-fields/route.js'
 import type { NextRequest } from 'next/server.js'
 

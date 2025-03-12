@@ -5,6 +5,7 @@ import {
     GetObjectCommand 
   } from '@aws-sdk/client-s3';
   import { getSignedUrl as getAwsSignedUrl } from '@aws-sdk/s3-request-presigner';
+  import { Readable } from 'stream';
   
   // Validate required environment variables
   const requiredEnvVars = [
@@ -106,3 +107,28 @@ import {
       throw new Error('Failed to generate signed URL');
     }
   };
+
+  /**
+ * Gets a readable stream for an S3 object
+ * @param key - S3 key of the file
+ * @returns Promise<Readable> - Readable stream of the file content
+ */
+export async function getS3ReadStream(key: string): Promise<Readable> {
+  try {
+    const response = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: process.env.CUSTOM_AWS_S3_BUCKET,
+        Key: key
+      })
+    );
+    
+    if (!response.Body) {
+      throw new Error('Empty response body from S3');
+    }
+    
+    return response.Body as Readable;
+  } catch (error) {
+    console.error('Error creating stream from S3:', error);
+    throw new Error('Failed to create stream from S3');
+  }
+}

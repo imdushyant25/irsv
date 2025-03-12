@@ -1,4 +1,4 @@
-// File: /Users/dushyantsingh/Documents/illuminate-rx copy/src/app/opportunities/[opportunityId]/files/page.tsx
+// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/opportunities/[opportunityId]/files/page.tsx
 import * as entry from '../../../../../../src/app/opportunities/[opportunityId]/files/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

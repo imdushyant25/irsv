@@ -1,5 +1,5 @@
 // File: src/lib/db/index.ts
-import { Pool, QueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -27,12 +27,15 @@ const config = {
   ...(process.env.DB_SCHEMA && {
     options: `-c search_path=${process.env.DB_SCHEMA}`
   }),
-  // Connection pool settings
-  max: 20,
+  // Connection pool settings - optimized values
+  max: 20,            // Maximum pool size
+  min: 5,             // Minimum pool size
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  // Add statement-level timeout (30 seconds)
+  statement_timeout: 30000,
   ssl: {
-    rejectUnauthorized: false // Required for AWS RDS connections
+    rejectUnauthorized: false
   }
 };
 
@@ -100,6 +103,26 @@ export async function query<T extends QueryResultRow>(
     throw error;
   } finally {
     client.release();
+  }
+}
+
+export async function getClientWithTimeout(
+  timeoutMs: number = 60000
+): Promise<PoolClient> {
+  const client = await pool.connect();
+  try {
+    // Set schema for this connection
+    if (process.env.DB_SCHEMA) {
+      await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
+    }
+    
+    // Set statement timeout
+    await client.query(`SET statement_timeout TO ${timeoutMs}`);
+    
+    return client;
+  } catch (error) {
+    client.release();
+    throw error;
   }
 }
 
