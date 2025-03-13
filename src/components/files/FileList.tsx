@@ -42,8 +42,10 @@ import {
 import { FileText, AlertCircle, ArrowRight, Play, Wand2 } from 'lucide-react';
 import { formatFileSize, formatDate } from '@/utils/format';
 import ProcessingStatus from '@/components/processing/ProcessingStatus';
+import LambdaProcessingStatus from '@/components/processing/LambdaProcessingStatus';
 import EnrichmentStatus from '@/components/processing/EnrichmentStatus';
 import ProcessFileButton from '@/components/processing/ProcessFileButton'; // Import our new component
+import { features } from '@/config/features'; //
 
 export interface FileListProps {
   files: FileRecord[];
@@ -324,26 +326,43 @@ export function FileList({
                 </Tr>
                 
                 {processingFileId === file.fileId && (
-                  <Tr>
-                    <Td colSpan={6} bg="gray.50" p={4}>
-                      <ProcessingStatus
-                        fileId={file.fileId}
-                        onComplete={() => {
-                          setProcessingFileId(null);
-                          // After completion, refresh the file list
-                          refreshFiles();
-                          onFileAction?.();
-                        }}
-                        onError={() => {
-                          setProcessingFileId(null);
-                          refreshFiles();
-                          onFileAction?.();
-                        }}
-                      />
-                    </Td>
-                  </Tr>
-                )}
-
+  <Tr>
+    <Td colSpan={6} bg="gray.50" p={4}>
+      {features.useLambdaProcessing ? (
+        <LambdaProcessingStatus
+          fileId={file.fileId}
+          processingId={processingFileId}
+          onComplete={() => {
+            setProcessingFileId(null);
+            // After completion, refresh the file list
+            refreshFiles();
+            onFileAction?.();
+          }}
+          onError={() => {
+            setProcessingFileId(null);
+            refreshFiles();
+            onFileAction?.();
+          }}
+        />
+      ) : (
+        <ProcessingStatus
+          fileId={file.fileId}
+          onComplete={() => {
+            setProcessingFileId(null);
+            // After completion, refresh the file list
+            refreshFiles();
+            onFileAction?.();
+          }}
+          onError={() => {
+            setProcessingFileId(null);
+            refreshFiles();
+            onFileAction?.();
+          }}
+        />
+      )}
+    </Td>
+  </Tr>
+)}
               {enrichingFileId === file.fileId && (
                 <Tr>
                   <Td colSpan={6} bg="gray.50" p={4}>

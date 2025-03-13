@@ -10,20 +10,25 @@
       "static/chunks/main-app.js",
       "static/chunks/app/layout.js"
     ],
-    "/opportunities/[opportunityId]/files/[fileId]/page": [
+    "/opportunities/[opportunityId]/files/[fileId]/mapping/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/page.js"
+      "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/mapping/page.js"
+    ],
+    "/opportunities/[opportunityId]/files/[fileId]/claims/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/claims/page.js"
     ],
     "/opportunities/[opportunityId]/files/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/opportunities/[opportunityId]/files/page.js"
     ],
-    "/opportunities/[opportunityId]/files/[fileId]/claims/page": [
+    "/opportunities/[opportunityId]/files/[fileId]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/claims/page.js"
+      "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/page.js"
     ]
   }
 }
