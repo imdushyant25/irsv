@@ -1,0 +1,1 @@
+{"errorType":"Error","errorMessage":"Batch test not found","trace":["Error: Batch test not found","    at getBatchInfo (/var/task/index.js:101:15)","    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)","    at async Runtime.handler (/var/task/index.js:48:27)"]}

@@ -1,12 +1,8 @@
-// File: src/app/api/files/[fileId]/enrichment/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { enrichmentService } from '@/services/enrichment/EnrichmentService';
-import { enrichmentRuleRegistry } from '@/services/enrichment/EnrichmentRuleRegistry';
-import { AgeRulesProcessor } from '@/services/enrichment/rules/AgeRulesProcessor';
+// File: src/app/api/files/[fileId]/enrichment/route.ts (updated)
 
-// Register the available rule processors
-const ageRulesProcessor = new AgeRulesProcessor();
-enrichmentRuleRegistry.registerProcessor(ageRulesProcessor);
+import { NextRequest, NextResponse } from 'next/server';
+import { getEnrichmentService } from '@/services/enrichment/EnrichmentServiceFactory';
+import { enrichmentRuleRegistry } from '@/services/enrichment/EnrichmentRuleRegistry';
 
 export async function POST(
   request: NextRequest,
@@ -25,6 +21,9 @@ export async function POST(
     if (!enrichmentRuleRegistry.isInitialized()) {
       await enrichmentRuleRegistry.loadRules();
     }
+
+    // Get the appropriate enrichment service based on feature flags
+    const enrichmentService = getEnrichmentService();
 
     // Start the enrichment process
     const result = await enrichmentService.startEnrichment(
