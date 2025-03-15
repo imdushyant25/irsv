@@ -1,12 +1,8 @@
 // File: lambda/enrichmentProcessor/index.ts
 
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Pool, Client } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import { ruleProcessors } from './processors';
-
-// Initialize S3 client
-const s3Client = new S3Client({ region: process.env.AWS_REGION });
 
 // Connection configuration
 const dbConfig = {
@@ -20,8 +16,8 @@ const dbConfig = {
   }
 };
 
-// Define status enums
-enum EnrichmentStatus {
+// Define status enums as string literals to ensure type safety
+enum BatchEnrichmentStatus {
   PENDING = 'PENDING',
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
@@ -55,24 +51,33 @@ export const handler = async (event: any) => {
     }
     
     // Update batch status to PROCESSING
-    await updateBatchStatus(client, batchId, 'PROCESSING');
+    await updateBatchEnrichmentStatus(client, batchId, BatchEnrichmentStatus.PROCESSING);
     
     // Fetch the batch information from database
     const batchInfo = await getBatchInfo(client, batchId);
+    
+    // Verify batch is in the correct state for processing
+    if (batchInfo.processing_status !== 'PROCESSED') {
+      throw new Error(`Batch ${batchId} is not ready for enrichment, current status: ${batchInfo.processing_status}`);
+    }
     
     // Fetch claims for this batch
     const claims = await fetchClaimRecords(client, fileId, startRow, endRow);
     console.log(`Processing ${claims.length} claims for batch ${batchId}`);
     
-    // Process each claim
+    // Process each claim with rule processors
     const results = await processClaims(client, claims, ruleProcessors);
     
     // Update batch status to COMPLETED
-    await updateBatchStatus(client, batchId, 'COMPLETED', {
+    await updateBatchEnrichmentStatus(client, batchId, BatchEnrichmentStatus.COMPLETED, {
       totalProcessed: claims.length,
       enriched: results.enriched,
-      failed: results.failed
+      failed: results.failed,
+      ruleStats: results.ruleStats
     });
+    
+    // Check if all batches for this file are complete
+    await checkFileEnrichmentCompletion(client, fileId);
     
     return {
       statusCode: 200,
@@ -131,15 +136,19 @@ async function getBatchInfo(client: Client, batchId: string) {
 }
 
 /**
- * Update batch status in the database
+ * Update batch enrichment status in the database
  */
-async function updateBatchStatus(client: Client, batchId: string, status: string, details?: any) {
-  const params = [status];
+async function updateBatchEnrichmentStatus(
+  client: Client, 
+  batchId: string, 
+  status: BatchEnrichmentStatus, 
+  details?: any
+) {
+  const params: any[] = [status];
   let paramIndex = 2;
   const updateFields = ['enrichment_status = $1', 'updated_at = CURRENT_TIMESTAMP'];
   
-  
-  if (status === 'COMPLETED') {
+  if (status === BatchEnrichmentStatus.COMPLETED) {
     updateFields.push('enriched_at = CURRENT_TIMESTAMP');
   }
   
@@ -170,6 +179,46 @@ async function updateBatchStatus(client: Client, batchId: string, status: string
 }
 
 /**
+ * Check if all batches for a file have been enriched and update file status if needed
+ */
+async function checkFileEnrichmentCompletion(client: Client, fileId: string) {
+  try {
+    // Count total and completed batches
+    const batchesResult = await client.query(`
+      SELECT 
+        COUNT(*) as total_batches,
+        SUM(CASE WHEN enrichment_status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_batches,
+        SUM(CASE WHEN enrichment_status = 'ERROR' THEN 1 ELSE 0 END) as error_batches
+      FROM batch_processing_status
+      WHERE file_id = $1
+    `, [fileId]);
+    
+    const { total_batches, completed_batches, error_batches } = batchesResult.rows[0];
+    
+    // If all batches are either completed or in error state
+    if (parseInt(total_batches) > 0 && parseInt(completed_batches) + parseInt(error_batches) === parseInt(total_batches)) {
+      console.log(`All batches processed for file ${fileId}: ${completed_batches} completed, ${error_batches} failed`);
+      
+      // If at least some batches were enriched successfully, mark the file as ENRICHED
+      if (parseInt(completed_batches) > 0) {
+        await client.query(`
+          UPDATE claims_file_registry
+          SET 
+            status = 'ENRICHED',
+            updated_at = CURRENT_TIMESTAMP,
+            updated_by = 'system'
+          WHERE file_id = $1
+        `, [fileId]);
+        console.log(`File ${fileId} status updated to ENRICHED`);
+      }
+    }
+  } catch (error) {
+    console.error(`Error checking file completion status: ${error}`);
+    // Don't throw here to avoid failing the batch processing
+  }
+}
+
+/**
  * Fetch claim records for processing
  */
 async function fetchClaimRecords(client: Client, fileId: string, startRow: number, endRow: number) {
@@ -196,6 +245,17 @@ async function processClaims(client: Client, claims: any[], processors: any[]) {
   let enriched = 0;
   let failed = 0;
   
+  // Track rule application stats
+  const ruleStats = new Map();
+  processors.forEach(processor => {
+    ruleStats.set(processor.ruleId, {
+      ruleId: processor.ruleId,
+      name: processor.name,
+      attempted: 0,
+      succeeded: 0
+    });
+  });
+  
   // Process each claim
   for (const claim of claims) {
     try {
@@ -205,6 +265,12 @@ async function processClaims(client: Client, claims: any[], processors: any[]) {
       // Apply each rule processor
       for (const processor of processors) {
         try {
+          // Track attempt
+          const stats = ruleStats.get(processor.ruleId);
+          if (stats) {
+            stats.attempted++;
+          }
+          
           // Check if rule can be applied to this claim
           if (processor.validate(claim)) {
             // Process the claim
@@ -214,6 +280,11 @@ async function processClaims(client: Client, claims: any[], processors: any[]) {
             if (result.success && result.fieldName && result.fieldValue) {
               dynamicFields[result.fieldName] = result.fieldValue;
               claimEnriched = true;
+              
+              // Track success
+              if (stats) {
+                stats.succeeded++;
+              }
             }
           }
         } catch (ruleError) {
@@ -235,7 +306,13 @@ async function processClaims(client: Client, claims: any[], processors: any[]) {
     }
   }
   
-  return { enriched, failed };
+  // Convert rule stats map to array for reporting
+  const ruleStatsArray = Array.from(ruleStats.values()).map(stats => ({
+    ...stats,
+    successRate: stats.attempted > 0 ? (stats.succeeded / stats.attempted) * 100 : 0
+  }));
+  
+  return { enriched, failed, ruleStats: ruleStatsArray };
 }
 
 /**
@@ -270,5 +347,5 @@ async function handleProcessingError(client: Client, batchId: string, error: any
       updated_at = CURRENT_TIMESTAMP,
       retry_count = retry_count + 1
     WHERE batch_id = $3
-  `, ['ERROR', JSON.stringify(errorDetails), batchId]);
+  `, [BatchEnrichmentStatus.ERROR, JSON.stringify(errorDetails), batchId]);
 }

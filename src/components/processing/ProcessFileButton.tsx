@@ -5,8 +5,6 @@ import {
   Button,
   VStack,
   HStack,
-  Radio,
-  RadioGroup,
   Text,
   Alert,
   AlertIcon,
@@ -21,7 +19,7 @@ import {
   useDisclosure,
   useToast
 } from '@chakra-ui/react';
-import { Play, Wand2 } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { FileStatus } from '@/types/file';
 
 interface ProcessFileButtonProps {
@@ -40,7 +38,6 @@ export default function ProcessFileButton({
   onProcessingStart
 }: ProcessFileButtonProps) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingMode, setProcessingMode] = useState<'standard' | 'combined'>('combined');
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
 
@@ -67,12 +64,8 @@ export default function ProcessFileButton({
     setIsProcessing(true);
     
     try {
-      // Use the appropriate API endpoint based on processing mode
-      const endpoint = processingMode === 'combined' 
-        ? `/api/files/${fileId}/process-combined`
-        : `/api/files/${fileId}/process`;
-      
-      const response = await fetch(endpoint, {
+      // Always use the Lambda processing endpoint
+      const response = await fetch(`/api/files/${fileId}/process`, {
         method: 'POST'
       });
 
@@ -84,9 +77,7 @@ export default function ProcessFileButton({
       // Show success message
       toast({
         title: 'Processing Started',
-        description: processingMode === 'combined' 
-          ? 'Combined processing and enrichment has been initiated'
-          : 'File processing has been initiated',
+        description: 'File processing has been initiated using Lambda',
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -134,38 +125,10 @@ export default function ProcessFileButton({
                 <AlertIcon />
                 <AlertTitle>Important!</AlertTitle>
                 <AlertDescription>
-                  This will convert {rowCount.toLocaleString()} rows from "{fileName}" into claim records. 
+                  This will convert {rowCount.toLocaleString()} rows from "{fileName}" into claim records using Lambda processing. 
                   This process cannot be reversed.
                 </AlertDescription>
               </Alert>
-              
-              <RadioGroup onChange={(v) => setProcessingMode(v as 'standard' | 'combined')} value={processingMode}>
-                <Text fontWeight="bold" mb={2}>Processing Mode:</Text>
-                <VStack spacing={3} align="start">
-                  <Radio value="standard">
-                    <VStack align="start" spacing={0}>
-                      <Text fontWeight="medium">Standard Processing</Text>
-                      <Text fontSize="sm" color="gray.600">
-                        Process claims first, then enrich data separately (two steps)
-                      </Text>
-                    </VStack>
-                  </Radio>
-                  
-                  <Radio value="combined">
-                    <HStack align="center">
-                      <VStack align="start" spacing={0}>
-                        <HStack>
-                          <Text fontWeight="medium">Combined Processing & Enrichment</Text>
-                          <Wand2 size={16} color="purple" />
-                        </HStack>
-                        <Text fontSize="sm" color="gray.600">
-                          Process and enrich data in a single step (faster, recommended)
-                        </Text>
-                      </VStack>
-                    </HStack>
-                  </Radio>
-                </VStack>
-              </RadioGroup>
             </VStack>
           </ModalBody>
           <ModalFooter>

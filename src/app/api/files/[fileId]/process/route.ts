@@ -5,12 +5,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '@/lib/db';
 import { FileStatus } from '@/types/file';
 import { ProcessingStatus } from '@/types/claims-processing';
-import { createClaimsProcessor } from '@/services/claims-processing';
-import { features } from '@/config/features';
 import { invokeLambda } from '@/lib/aws/lambda';
 
 async function validateProcessing(fileId: string) {
-  // Existing validation logic remains unchanged
+  // Get current file status and details
   const fileResult = await query(`
     SELECT 
       file_id,
@@ -36,8 +34,8 @@ async function validateProcessing(fileId: string) {
   const processingResult = await query(`
     SELECT processing_id 
     FROM claim_processing_history
-    WHERE file_id = $1 AND status = $2
-  `, [fileId, ProcessingStatus.PROCESSING]);
+    WHERE file_id = $1 AND status IN ($2, $3)
+  `, [fileId, ProcessingStatus.PENDING, ProcessingStatus.PROCESSING]);
 
   if (processingResult.rows.length > 0) {
     throw new Error('File is already being processed');
@@ -87,7 +85,7 @@ export async function POST(
         ProcessingStatus.PENDING,
         fileDetails.rowCount,
         'system', // TODO: Replace with actual user ID once auth is implemented
-        features.useLambdaProcessing ? 'lambda' : 'standard'
+        'lambda' // Always use lambda mode
       ]);
 
       // Update file status
@@ -106,70 +104,54 @@ export async function POST(
 
       await query('COMMIT');
 
-      // Determine whether to use Lambda or local processing
-      if (features.useLambdaProcessing && features.lambdaFeatures.fileProcessing) {
-        // Lambda processing path
-        console.log(`Using Lambda for file processing: ${fileId}`);
+      // Lambda processing path
+      console.log(`Using Lambda for file processing: ${fileId}`);
+      
+      try {
+        // Check if Lambda is properly configured
+        const lambdaName = process.env.FILE_PROCESSOR_LAMBDA_NAME || 'file-processor';
+        console.log(`Using Lambda function name: ${lambdaName}`);
         
-        try {
-          // Check if Lambda is properly configured
-          const lambdaName = process.env.FILE_PROCESSOR_LAMBDA_NAME || 'file-processor';
-          console.log(`Using Lambda function name: ${lambdaName}`);
-          
-          // Create payload
-          const payload = {
-            fileId,
-            processingId,
-            s3Location: fileDetails.s3Location
-          };
-          
-          // For troubleshooting, log the payload
-          console.log('Lambda payload:', JSON.stringify(payload));
-          
-          // Use 'Event' invocation type for asynchronous processing
-          // This will return immediately and not wait for the Lambda to complete
-          await invokeLambda(
-            lambdaName,
-            payload,
-            'Event' // Asynchronous invocation
-          );
-          
-          console.log(`Lambda invocation successful for file: ${fileId}`);
-        } catch (lambdaError) {
-          console.error('Lambda invocation error:', lambdaError);
-          
-          // Update the processing status to error
-          await updateProcessingError(processingId, lambdaError);
-          
-          // Return error response
-          return NextResponse.json(
-            {
-              error: 'Lambda invocation failed',
-              details: lambdaError instanceof Error ? lambdaError.message : 'Unknown error'
-            },
-            { status: 500 }
-          );
-        }
-      } else {
-        // Local processing path (existing implementation)
-        console.log(`Using local processing for file: ${fileId}`);
-        const processor = createClaimsProcessor(
+        // Create payload
+        const payload = {
           fileId,
           processingId,
-          fileDetails.s3Location
+          s3Location: fileDetails.s3Location
+        };
+        
+        // For troubleshooting, log the payload
+        console.log('Lambda payload:', JSON.stringify(payload));
+        
+        // Use 'Event' invocation type for asynchronous processing
+        // This will return immediately and not wait for the Lambda to complete
+        await invokeLambda(
+          lambdaName,
+          payload,
+          'Event' // Asynchronous invocation
         );
-
-        // Start processing in background
-        processor.process().catch(error => {
-          console.error('Background processing error:', error);
-        });
+        
+        console.log(`Lambda invocation successful for file: ${fileId}`);
+      } catch (lambdaError) {
+        console.error('Lambda invocation error:', lambdaError);
+        
+        // Update the processing status to error
+        await updateProcessingError(processingId, lambdaError);
+        
+        // Return error response
+        return NextResponse.json(
+          {
+            error: 'Lambda invocation failed',
+            details: lambdaError instanceof Error ? lambdaError.message : 'Unknown error'
+          },
+          { status: 500 }
+        );
       }
 
       return NextResponse.json({
         processingId,
         status: ProcessingStatus.PENDING,
-        message: 'File processing initiated',
-        mode: features.useLambdaProcessing ? 'lambda' : 'standard'
+        message: 'File processing initiated with Lambda',
+        mode: 'lambda'
       });
 
     } catch (error) {

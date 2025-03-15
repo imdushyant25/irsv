@@ -1,4 +1,4 @@
-// File: src/components/files/FileList.tsx (updated version)
+// File: src/components/files/FileList.tsx
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -42,10 +42,8 @@ import {
 import { FileText, AlertCircle, ArrowRight, Play, Wand2 } from 'lucide-react';
 import { formatFileSize, formatDate } from '@/utils/format';
 import ProcessingStatus from '@/components/processing/ProcessingStatus';
-import LambdaProcessingStatus from '@/components/processing/LambdaProcessingStatus';
 import EnrichmentStatus from '@/components/processing/EnrichmentStatus';
-import ProcessFileButton from '@/components/processing/ProcessFileButton'; // Import our new component
-import { features } from '@/config/features'; //
+import ProcessFileButton from '@/components/processing/ProcessFileButton';
 
 export interface FileListProps {
   files: FileRecord[];
@@ -269,17 +267,17 @@ export function FileList({
                             View Claims
                           </Button>
                           {file.status !== FileStatus.ENRICHED && (
-                          <Button
-                            size="sm"
-                            leftIcon={<Wand2 size={16} />}
-                            onClick={() => handleEnrichFile(file.fileId)}
-                            colorScheme="purple"
-                            variant="outline"
-                            isLoading={enrichingFileId === file.fileId}
-                          >
-                            Enrich Data
-                          </Button>
-                        )}
+                            <Button
+                              size="sm"
+                              leftIcon={<Wand2 size={16} />}
+                              onClick={() => handleEnrichFile(file.fileId)}
+                              colorScheme="purple"
+                              variant="outline"
+                              isLoading={enrichingFileId === file.fileId}
+                            >
+                              Enrich Data
+                            </Button>
+                          )}
                         </>
                       ) : (
                         <>
@@ -296,7 +294,6 @@ export function FileList({
                             </Button>
                           )}
 
-                          {/* Replace the old Process File button with our new component */}
                           {file.status === FileStatus.MAPPED && (
                             <ProcessFileButton
                               fileId={file.fileId}
@@ -326,62 +323,45 @@ export function FileList({
                 </Tr>
                 
                 {processingFileId === file.fileId && (
-  <Tr>
-    <Td colSpan={6} bg="gray.50" p={4}>
-      {features.useLambdaProcessing ? (
-        <LambdaProcessingStatus
-          fileId={file.fileId}
-          processingId={processingFileId}
-          onComplete={() => {
-            setProcessingFileId(null);
-            // After completion, refresh the file list
-            refreshFiles();
-            onFileAction?.();
-          }}
-          onError={() => {
-            setProcessingFileId(null);
-            refreshFiles();
-            onFileAction?.();
-          }}
-        />
-      ) : (
-        <ProcessingStatus
-          fileId={file.fileId}
-          onComplete={() => {
-            setProcessingFileId(null);
-            // After completion, refresh the file list
-            refreshFiles();
-            onFileAction?.();
-          }}
-          onError={() => {
-            setProcessingFileId(null);
-            refreshFiles();
-            onFileAction?.();
-          }}
-        />
-      )}
-    </Td>
-  </Tr>
-)}
-              {enrichingFileId === file.fileId && (
-                <Tr>
-                  <Td colSpan={6} bg="gray.50" p={4}>
-                    <EnrichmentStatus
-                      fileId={file.fileId}
-                      onComplete={() => {
-                        setEnrichingFileId(null);
-                        refreshFiles();
-                        onFileAction?.();
-                      }}
-                      onError={() => {
-                        setEnrichingFileId(null);
-                        refreshFiles();
-                        onFileAction?.();
-                      }}
-                    />
-                  </Td>
-                </Tr>
-              )}
+                  <Tr>
+                    <Td colSpan={6} bg="gray.50" p={4}>
+                      <ProcessingStatus
+                        fileId={file.fileId}
+                        onComplete={() => {
+                          setProcessingFileId(null);
+                          // After completion, refresh the file list
+                          refreshFiles();
+                          onFileAction?.();
+                        }}
+                        onError={() => {
+                          setProcessingFileId(null);
+                          refreshFiles();
+                          onFileAction?.();
+                        }}
+                      />
+                    </Td>
+                  </Tr>
+                )}
+                
+                {enrichingFileId === file.fileId && (
+                  <Tr>
+                    <Td colSpan={6} bg="gray.50" p={4}>
+                      <EnrichmentStatus
+                        fileId={file.fileId}
+                        onComplete={() => {
+                          setEnrichingFileId(null);
+                          refreshFiles();
+                          onFileAction?.();
+                        }}
+                        onError={() => {
+                          setEnrichingFileId(null);
+                          refreshFiles();
+                          onFileAction?.();
+                        }}
+                      />
+                    </Td>
+                  </Tr>
+                )}
               </React.Fragment>
             ))}
             

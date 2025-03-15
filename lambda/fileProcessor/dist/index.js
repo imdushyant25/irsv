@@ -36,12 +36,15 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 const client_s3_1 = require("@aws-sdk/client-s3");
+const client_lambda_1 = require("@aws-sdk/client-lambda");
 const pg_1 = require("pg");
 const XLSX = __importStar(require("xlsx"));
 const uuid_1 = require("uuid");
 // Initialize S3 client
 const s3Client = new client_s3_1.S3Client({ region: process.env.AWS_REGION });
-// Initialize PostgreSQL connection pool
+// Initialize Lambda client
+const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
+// Initialize PostgreSQL connection pool - keep this for the duration of the Lambda
 const pool = new pg_1.Pool({
     host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT || '5432'),
@@ -51,8 +54,7 @@ const pool = new pg_1.Pool({
     ssl: {
         rejectUnauthorized: false
     },
-    // Connection pool settings optimized for Lambda
-    max: 1, // Lambda functions are single-threaded
+    max: 5, // Increased for better concurrency 
     idleTimeoutMillis: 120000, // Longer timeout for cold starts
     connectionTimeoutMillis: 10000
 });
@@ -71,6 +73,24 @@ var FileStatus;
     FileStatus["PROCESSED"] = "PROCESSED";
     FileStatus["ERROR"] = "ERROR";
 })(FileStatus || (FileStatus = {}));
+// Define batch processing status values
+var BatchStatus;
+(function (BatchStatus) {
+    BatchStatus["PENDING"] = "PENDING";
+    BatchStatus["PROCESSING"] = "PROCESSING";
+    BatchStatus["PROCESSED"] = "PROCESSED";
+    BatchStatus["ERROR"] = "ERROR";
+})(BatchStatus || (BatchStatus = {}));
+// Define batch enrichment status values
+var BatchEnrichmentStatus;
+(function (BatchEnrichmentStatus) {
+    BatchEnrichmentStatus["PENDING"] = "PENDING";
+    BatchEnrichmentStatus["PROCESSING"] = "PROCESSING";
+    BatchEnrichmentStatus["COMPLETED"] = "COMPLETED";
+    BatchEnrichmentStatus["ERROR"] = "ERROR";
+})(BatchEnrichmentStatus || (BatchEnrichmentStatus = {}));
+// Set batch size for processing
+const BATCH_SIZE = 100;
 /**
  * Main Lambda handler for file processing
  * @param event The Lambda event containing fileId, processingId, and s3Location
@@ -83,8 +103,17 @@ const handler = async (event) => {
         throw new Error('Missing required parameters: fileId, processingId, or s3Location');
     }
     try {
-        // Update status to PROCESSING
-        await updateProcessingStatus(processingId, ProcessingStatus.PROCESSING);
+        // Update status to PROCESSING - using client instead of pool directly
+        const client = await pool.connect();
+        try {
+            await setSchemaForClient(client);
+            await updateProcessingStatusWithClient(client, processingId, ProcessingStatus.PROCESSING);
+            client.release();
+        }
+        catch (err) {
+            client.release();
+            throw err;
+        }
         // Download and parse Excel file from S3
         console.log(`Downloading file from S3: ${s3Location}`);
         const fileBuffer = await downloadFromS3(s3Location);
@@ -105,18 +134,56 @@ const handler = async (event) => {
         // Get mapping for file
         const mapping = await getFileMapping(fileId);
         // Process rows in batches
-        const BATCH_SIZE = 100;
         let processedRows = 0;
+        // Create batches first
+        const batches = [];
         for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-            const batch = rows.slice(i, Math.min(i + BATCH_SIZE, rows.length));
-            await processBatch(fileId, batch, mapping);
-            // Update progress
-            processedRows += batch.length;
-            await updateProgress(processingId, processedRows, totalRows);
+            const batchId = (0, uuid_1.v4)();
+            const startRow = i + 1; // 1-based row numbering
+            const endRow = Math.min(i + BATCH_SIZE, rows.length);
+            const batchSize = endRow - startRow + 1;
+            // Create batch record
+            await createBatchRecord(batchId, fileId, startRow, endRow, batchSize);
+            batches.push({
+                batchId,
+                startRow,
+                endRow,
+                rows: rows.slice(i, endRow)
+            });
         }
-        // Update final status
-        await updateProcessingStatus(processingId, ProcessingStatus.COMPLETED);
-        await updateFileStatus(fileId, FileStatus.PROCESSED);
+        console.log(`Created ${batches.length} batches for processing`);
+        // Process batches
+        for (const batch of batches) {
+            try {
+                // Process batch
+                await processBatch(fileId, batch.rows, mapping, batch.startRow);
+                // Update batch status
+                await updateBatchStatus(batch.batchId, BatchStatus.PROCESSED);
+                // Invoke enrichment Lambda asynchronously
+                await invokeEnrichmentLambda(batch.batchId, fileId, batch.startRow, batch.endRow);
+                // Update progress
+                processedRows += batch.rows.length;
+                await updateProgress(processingId, processedRows, totalRows);
+                console.log(`Processed batch ${batch.batchId} (${batch.startRow}-${batch.endRow}) and triggered enrichment`);
+            }
+            catch (error) {
+                console.error(`Error processing batch ${batch.batchId}:`, error);
+                await updateBatchStatus(batch.batchId, BatchStatus.ERROR, error);
+                // Continue with other batches
+            }
+        }
+        // Update final status - using client instead of pool directly
+        const finalClient = await pool.connect();
+        try {
+            await setSchemaForClient(finalClient);
+            await updateProcessingStatusWithClient(finalClient, processingId, ProcessingStatus.COMPLETED);
+            await updateFileStatusWithClient(finalClient, fileId, FileStatus.PROCESSED);
+            finalClient.release();
+        }
+        catch (err) {
+            finalClient.release();
+            throw err;
+        }
         console.log(`Successfully processed ${processedRows} rows for file ${fileId}`);
         return {
             statusCode: 200,
@@ -136,12 +203,111 @@ const handler = async (event) => {
         // Re-throw the error to be caught by Lambda
         throw error;
     }
-    finally {
-        // Close pool after processing is complete
-        await pool.end();
-    }
+    // DO NOT call pool.end() here anymore, as we need to keep the pool alive
+    // for the duration of the Lambda execution
 };
 exports.handler = handler;
+/**
+ * Creates a batch record in the tracking table
+ */
+async function createBatchRecord(batchId, fileId, startRow, endRow, totalRows) {
+    const client = await pool.connect();
+    try {
+        // Set schema first
+        await setSchemaForClient(client);
+        await client.query(`
+      INSERT INTO batch_processing_status (
+        batch_id, file_id, start_row, end_row, total_rows,
+        processing_status, enrichment_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, [
+            batchId,
+            fileId,
+            startRow,
+            endRow,
+            totalRows,
+            BatchStatus.PENDING,
+            BatchEnrichmentStatus.PENDING
+        ]);
+    }
+    finally {
+        client.release();
+    }
+}
+/**
+ * Updates a batch's processing status
+ */
+async function updateBatchStatus(batchId, status, error) {
+    const client = await pool.connect();
+    try {
+        // Set schema first
+        await setSchemaForClient(client);
+        const params = [status];
+        let sql = `
+      UPDATE batch_processing_status
+      SET processing_status = $1
+    `;
+        // Add processed_at timestamp if completed
+        if (status === BatchStatus.PROCESSED) {
+            sql += `, processed_at = CURRENT_TIMESTAMP`;
+        }
+        // Add error details if there was an error
+        if (error) {
+            sql += `, error_details = $2`;
+            params.push(JSON.stringify({
+                message: error instanceof Error ? error.message : 'Unknown error',
+                details: error instanceof Error ? error.stack : String(error),
+                timestamp: new Date().toISOString()
+            }));
+        }
+        sql += `, updated_at = CURRENT_TIMESTAMP WHERE batch_id = $${params.length + 1}`;
+        params.push(batchId);
+        await client.query(sql, params);
+    }
+    finally {
+        client.release();
+    }
+}
+/**
+ * Invokes the enrichment Lambda function asynchronously
+ */
+async function invokeEnrichmentLambda(batchId, fileId, startRow, endRow) {
+    try {
+        const enrichmentLambdaName = process.env.ENRICHMENT_LAMBDA_NAME || 'enrichmentProcessor';
+        const payload = {
+            batchId,
+            fileId,
+            startRow,
+            endRow
+        };
+        const params = {
+            FunctionName: enrichmentLambdaName,
+            InvocationType: client_lambda_1.InvocationType.Event, // Asynchronous invocation
+            Payload: Buffer.from(JSON.stringify(payload))
+        };
+        const command = new client_lambda_1.InvokeCommand(params);
+        await lambdaClient.send(command);
+        console.log(`Successfully invoked enrichment Lambda for batch ${batchId}`);
+    }
+    catch (error) {
+        console.error(`Error invoking enrichment Lambda for batch ${batchId}:`, error);
+        // Don't throw, so we can continue processing other batches
+    }
+}
+/**
+ * Set schema for a database client connection
+ * @param client The database client
+ */
+async function setSchemaForClient(client) {
+    // Check if DB_SCHEMA is defined and set the schema for this connection
+    if (process.env.DB_SCHEMA) {
+        console.log(`Setting schema to: ${process.env.DB_SCHEMA}`);
+        await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
+    }
+    else {
+        console.warn('DB_SCHEMA environment variable not set');
+    }
+}
 /**
  * Downloads a file from S3
  * @param s3Location The S3 key of the file
@@ -164,20 +330,6 @@ async function downloadFromS3(s3Location) {
         }
     }
     return Buffer.concat(chunks);
-}
-/**
- * Set schema for a database client connection
- * @param client The database client
- */
-async function setSchemaForClient(client) {
-    // Check if DB_SCHEMA is defined and set the schema for this connection
-    if (process.env.DB_SCHEMA) {
-        console.log(`Setting schema to: ${process.env.DB_SCHEMA}`);
-        await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
-    }
-    else {
-        console.warn('DB_SCHEMA environment variable not set');
-    }
 }
 /**
  * Gets the mapping configuration for a file
@@ -217,34 +369,29 @@ async function getFileMapping(fileId) {
 }
 /**
  * Processes a batch of rows
- * @param fileId The file ID
- * @param rows The rows to process
- * @param mapping The mapping configuration
  */
-async function processBatch(fileId, rows, mapping) {
-    // Process rows in smaller sub-batches for better database performance
+async function processBatch(fileId, rows, mapping, startRowNumber) {
+    // Process in smaller sub-batches to avoid PostgreSQL parameter limits
     const SUB_BATCH_SIZE = 25;
     for (let i = 0; i < rows.length; i += SUB_BATCH_SIZE) {
         const subBatch = rows.slice(i, i + SUB_BATCH_SIZE);
-        await processSubBatch(fileId, subBatch, mapping);
+        await processSubBatch(fileId, subBatch, mapping, startRowNumber + i);
     }
 }
 /**
- * Processes a sub-batch of rows
- * @param fileId The file ID
- * @param rows The rows to process
- * @param mapping The mapping configuration
+ * Processes a smaller sub-batch of rows
  */
-async function processSubBatch(fileId, rows, mapping) {
+async function processSubBatch(fileId, rows, mapping, startRowNumber) {
     const client = await pool.connect();
     try {
         // Set schema first
         await setSchemaForClient(client);
         // Start transaction
         await client.query('BEGIN');
-        // Process each row
-        for (const row of rows) {
-            const rowNumber = rows.indexOf(row) + 1;
+        // Process each row in the sub-batch
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rowNumber = startRowNumber + i;
             const claim = transformRowToClaim(row, mapping, rowNumber);
             // Insert the claim record
             await client.query(`INSERT INTO claim_records (
@@ -278,10 +425,6 @@ async function processSubBatch(fileId, rows, mapping) {
 }
 /**
  * Transforms a row to a claim record
- * @param row The row data
- * @param mapping The mapping configuration
- * @param rowNumber The row number
- * @returns The transformed claim record
  */
 function transformRowToClaim(row, mapping, rowNumber) {
     const mappedFields = {};
@@ -308,6 +451,23 @@ function transformRowToClaim(row, mapping, rowNumber) {
     };
 }
 /**
+ * Updates the processing status using a provided client
+ * @param client The database client
+ * @param processingId The processing ID
+ * @param status The new status
+ */
+async function updateProcessingStatusWithClient(client, processingId, status) {
+    const sql = `
+    UPDATE claim_processing_history
+    SET 
+      status = $1,
+      ${status === ProcessingStatus.COMPLETED ? 'end_time = CURRENT_TIMESTAMP,' : ''}
+      updated_at = CURRENT_TIMESTAMP
+    WHERE processing_id = $2
+  `;
+    await client.query(sql, [status, processingId]);
+}
+/**
  * Updates the processing status
  * @param processingId The processing ID
  * @param status The new status
@@ -317,15 +477,7 @@ async function updateProcessingStatus(processingId, status) {
     try {
         // Set schema first
         await setSchemaForClient(client);
-        const sql = `
-      UPDATE claim_processing_history
-      SET 
-        status = $1,
-        ${status === ProcessingStatus.COMPLETED ? 'end_time = CURRENT_TIMESTAMP,' : ''}
-        updated_at = CURRENT_TIMESTAMP
-      WHERE processing_id = $2
-    `;
-        await client.query(sql, [status, processingId]);
+        await updateProcessingStatusWithClient(client, processingId, status);
     }
     finally {
         client.release();
@@ -346,14 +498,32 @@ async function updateProgress(processingId, processedRows, totalRows) {
       UPDATE claim_processing_history
       SET 
         processed_rows = $1,
+        total_rows = $2,
         updated_at = CURRENT_TIMESTAMP
-      WHERE processing_id = $2
+      WHERE processing_id = $3
     `;
-        await client.query(sql, [processedRows, processingId]);
+        await client.query(sql, [processedRows, totalRows, processingId]);
     }
     finally {
         client.release();
     }
+}
+/**
+ * Updates the file status using a provided client
+ * @param client The database client
+ * @param fileId The file ID
+ * @param status The new status
+ */
+async function updateFileStatusWithClient(client, fileId, status) {
+    const sql = `
+    UPDATE claims_file_registry
+    SET 
+      status = $1,
+      updated_at = CURRENT_TIMESTAMP,
+      updated_by = 'lambda-system'
+    WHERE file_id = $2
+  `;
+    await client.query(sql, [status, fileId]);
 }
 /**
  * Updates the file status
@@ -365,15 +535,7 @@ async function updateFileStatus(fileId, status) {
     try {
         // Set schema first
         await setSchemaForClient(client);
-        const sql = `
-      UPDATE claims_file_registry
-      SET 
-        status = $1,
-        updated_at = CURRENT_TIMESTAMP,
-        updated_by = 'lambda-system'
-      WHERE file_id = $2
-    `;
-        await client.query(sql, [status, fileId]);
+        await updateFileStatusWithClient(client, fileId, status);
     }
     finally {
         client.release();
