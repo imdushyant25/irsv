@@ -4,57 +4,53 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  Container,
   Box,
-  Heading,
-  Text,
-  HStack,
-  VStack,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
   Button,
+  Container,
+  Flex,
+  Heading,
+  HStack,
+  Icon,
+  IconButton,
+  Text,
+  VStack,
+  useDisclosure,
   useToast,
+  Collapse,
   Card,
-  CardHeader,
   CardBody,
-  Badge,
-  Spinner,
-  Alert,
-  AlertIcon,
+  CardHeader,
   Tabs,
   TabList,
   Tab,
   TabPanels,
   TabPanel,
-  Input,
-  Select,
-  FormControl,
-  FormLabel,
-  ButtonGroup,
-  IconButton,
-  Tooltip,
-  Menu,
-  MenuButton,
-  MenuList,
-  MenuItem,
+  Badge,
+  Divider,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
 } from '@chakra-ui/react';
-import { 
-  ChevronLeft, 
+import {
+  ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  FileText,
+  ChevronUp,
   Download,
+  FileText,
   Filter,
-  Search,
-  MoreVertical,
-  RefreshCw
+  RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
+
+// Import components
+import { ClaimsTable } from '@/components/claims/ClaimsTable';
+import { ClaimsFilter } from '@/components/claims/ClaimsFilter';
+import ClaimDetailPanel from '@/components/claims/ClaimDetailPanel';
+
+// Import types
 import { FileRecord, FileStatus } from '@/types/file';
 import { formatDate, formatFileSize } from '@/utils/format';
-import { ClaimsTable } from '@/components/claims/ClaimsTable';
-import { ClaimsSummary } from '@/components/claims/ClaimsSummary';
-import { ClaimsFilter } from '@/components/claims/ClaimsFilter';
 
 interface ClaimRecord {
   recordId: string;
@@ -66,24 +62,30 @@ interface ClaimRecord {
   createdAt: string;
 }
 
-interface ClaimsPageProps {}
-
-export default function ClaimsPage({}: ClaimsPageProps) {
+export default function ClaimsPage() {
   const params = useParams();
   const router = useRouter();
   const toast = useToast();
   
+  // State management
   const [file, setFile] = useState<FileRecord | null>(null);
   const [claims, setClaims] = useState<ClaimRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [filters, setFilters] = useState({
     validationStatus: '',
     processingStatus: '',
     searchTerm: ''
   });
+  const [selectedClaim, setSelectedClaim] = useState<ClaimRecord | null>(null);
+  
+  // UI state management
+  const { isOpen: isFilterOpen, onToggle: onToggleFilter } = useDisclosure();
+  const { isOpen: isFileDetailsOpen, onToggle: onToggleFileDetails } = useDisclosure({ defaultIsOpen: true });
+  const { isOpen: isDetailPanelOpen, onOpen: onOpenDetailPanel, onClose: onCloseDetailPanel } = useDisclosure();
 
   // Fetch file details and claims data
   useEffect(() => {
@@ -111,8 +113,10 @@ export default function ClaimsPage({}: ClaimsPageProps) {
 
   const fetchClaims = async () => {
     try {
+      setLoading(true);
       const queryParams = new URLSearchParams({
         page: currentPage.toString(),
+        limit: '25', // Reduced from default for better performance
         validationStatus: filters.validationStatus,
         processingStatus: filters.processingStatus,
         search: filters.searchTerm
@@ -126,13 +130,28 @@ export default function ClaimsPage({}: ClaimsPageProps) {
       
       const data = await response.json();
       setClaims(data.claims);
-      setTotalPages(data.totalPages);
-      setLoading(false);
+      setTotalPages(data.pagination.totalPages);
+      setTotalRecords(data.pagination.totalRecords);
     } catch (error) {
       console.error('Error fetching claims:', error);
-      throw error;
+      toast({
+        title: 'Error',
+        description: 'Failed to load claims data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setLoading(false);
     }
   };
+
+  // Handle page changes
+  useEffect(() => {
+    if (params?.fileId) {
+      fetchClaims();
+    }
+  }, [currentPage, params?.fileId]);
 
   const handleExport = async () => {
     try {
@@ -171,39 +190,40 @@ export default function ClaimsPage({}: ClaimsPageProps) {
   };
 
   const handleRefresh = () => {
-    setLoading(true);
-    fetchClaims().catch(error => {
-      toast({
-        title: 'Refresh Failed',
-        description: error instanceof Error ? error.message : 'Failed to refresh claims',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-      setLoading(false);
-    });
+    fetchClaims();
   };
 
   const handleFilterChange = (newFilters: typeof filters) => {
     setFilters(newFilters);
     setCurrentPage(1); // Reset to first page when filters change
-    setLoading(true);
-    fetchClaims().catch(error => {
-      toast({
-        title: 'Filter Failed',
-        description: error instanceof Error ? error.message : 'Failed to apply filters',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-      setLoading(false);
-    });
+    fetchClaims();
   };
 
-  if (loading) {
+  const handleViewClaim = (claim: ClaimRecord) => {
+    setSelectedClaim(claim);
+    onOpenDetailPanel();
+  };
+
+  const getStatusColor = (status: FileStatus): string => {
+    switch (status) {
+      case FileStatus.PROCESSED:
+        return 'purple';
+      case FileStatus.ENRICHED:
+        return 'teal';
+      case FileStatus.ERROR:
+        return 'red';
+      default:
+        return 'blue';
+    }
+  };
+
+  if (loading && !claims.length) {
     return (
       <Container maxW="container.xl" centerContent py={10}>
-        <Spinner size="xl" />
+        <VStack spacing={4}>
+          <Heading size="md">Loading Claims Data</Heading>
+          <Text>Please wait while we load the claims data...</Text>
+        </VStack>
       </Container>
     );
   }
@@ -211,107 +231,155 @@ export default function ClaimsPage({}: ClaimsPageProps) {
   if (error || !file) {
     return (
       <Container maxW="container.xl" py={10}>
-        <Alert status="error">
-          <AlertIcon />
-          {error || 'File not found'}
-        </Alert>
-        <Button
-          leftIcon={<ChevronLeft />}
-          mt={4}
-          onClick={() => router.back()}
-        >
-          Back
-        </Button>
+        <VStack spacing={4} align="start">
+          <Heading size="md">Error</Heading>
+          <Text color="red.500">{error || 'File not found'}</Text>
+          <Button
+            leftIcon={<ChevronLeft size={16} />}
+            onClick={() => router.back()}
+            size="sm"
+            colorScheme="blue"
+          >
+            Back
+          </Button>
+        </VStack>
       </Container>
     );
   }
 
   return (
-    <Container maxW="container.xl" py={8}>
+    <Container maxW="container.xl" py={6}>
       {/* Breadcrumb Navigation */}
-      <Box mb={6}>
-        <Breadcrumb
-          spacing="8px"
-          separator={<ChevronRight size={16} />}
-        >
-          <BreadcrumbItem>
-            <BreadcrumbLink as={Link} href="/opportunities">
-              Opportunities
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem>
-            <BreadcrumbLink as={Link} href={`/opportunities/${params.opportunityId}`}>
-              Opportunity
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem>
-            <BreadcrumbLink as={Link} href={`/opportunities/${params.opportunityId}/files`}>
-              Files
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem isCurrentPage>
-            <Text>Claims</Text>
-          </BreadcrumbItem>
-        </Breadcrumb>
-      </Box>
+      <Breadcrumb
+        spacing="8px"
+        separator={<ChevronRight size={16} />}
+        mb={6}
+      >
+        <BreadcrumbItem>
+          <BreadcrumbLink as={Link} href="/opportunities">
+            Opportunities
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbItem>
+          <BreadcrumbLink as={Link} href={`/opportunities/${params.opportunityId}`}>
+            Opportunity
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbItem>
+          <BreadcrumbLink as={Link} href={`/opportunities/${params.opportunityId}?tab=files`}>
+            Files
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbItem isCurrentPage>
+          <Text>Claims</Text>
+        </BreadcrumbItem>
+      </Breadcrumb>
 
       {/* File Details Card */}
-      <Card mb={6}>
-        <CardHeader>
-          <HStack justify="space-between">
-            <VStack align="start" spacing={1}>
+      <Card mb={4} variant="outline">
+        <CardHeader p={4}>
+          <Flex justify="space-between" align="center">
+            <HStack>
+              <Icon as={FileText} color="blue.500" boxSize="20px" />
               <Heading size="md">{file.originalFilename}</Heading>
-              <HStack spacing={4} color="gray.600">
-                <Text>Uploaded: {formatDate(file.uploadDate)}</Text>
-                <Text>Size: {formatFileSize(file.fileSize)}</Text>
-                <Text>Total Claims: {file.rowCount}</Text>
-              </HStack>
-            </VStack>
-            <Badge 
-              colorScheme={file.status === FileStatus.PROCESSED ? 'green' : 'yellow'}
-              fontSize="sm"
-              px={3}
-              py={1}
-              borderRadius="full"
+              <Badge colorScheme={getStatusColor(file.status)} ml={2}>
+                {file.status}
+              </Badge>
+            </HStack>
+            <Button
+              size="sm"
+              variant="ghost"
+              rightIcon={isFileDetailsOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              onClick={onToggleFileDetails}
             >
-              {file.status}
-            </Badge>
-          </HStack>
+              {isFileDetailsOpen ? "Hide Details" : "Show Details"}
+            </Button>
+          </Flex>
         </CardHeader>
+        <Collapse in={isFileDetailsOpen}>
+          <CardBody pt={0} pb={4} px={4}>
+            <Divider mb={4} />
+            <Flex 
+              direction={{ base: "column", md: "row" }} 
+              gap={4} 
+              flexWrap="wrap"
+            >
+              <Box minW="200px">
+                <Text fontSize="sm" fontWeight="medium" color="gray.500">File Information</Text>
+                <Text fontSize="sm" mt={1}>Uploaded: {formatDate(file.uploadDate)}</Text>
+                <Text fontSize="sm">Size: {formatFileSize(file.fileSize)}</Text>
+                <Text fontSize="sm">Total Claims: {file.rowCount}</Text>
+              </Box>
+            </Flex>
+          </CardBody>
+        </Collapse>
       </Card>
 
-      {/* Claims Data Section */}
-      <Tabs variant="enclosed">
+      {/* Actions & Filters */}
+      <Flex 
+        mb={4} 
+        wrap="wrap" 
+        justify="space-between" 
+        align="center"
+        gap={2}
+      >
+        <HStack>
+          <Button
+            leftIcon={<Filter size={16} />}
+            onClick={onToggleFilter}
+            size="sm"
+            colorScheme={isFilterOpen ? "blue" : "gray"}
+            variant={isFilterOpen ? "solid" : "outline"}
+          >
+            Filter
+          </Button>
+          
+          <Button
+            leftIcon={<Download size={16} />}
+            onClick={handleExport}
+            size="sm"
+            colorScheme="green"
+            variant="outline"
+          >
+            Export
+          </Button>
+        </HStack>
+        
+        <HStack>
+          <Text fontSize="sm" color="gray.600">
+            Showing {claims.length} of {totalRecords.toLocaleString()} claims
+          </Text>
+          <IconButton
+            aria-label="Refresh data"
+            icon={<RefreshCw size={16} />}
+            onClick={handleRefresh}
+            size="sm"
+            variant="ghost"
+          />
+        </HStack>
+      </Flex>
+
+      {/* Filters Panel */}
+      <Collapse in={isFilterOpen} animateOpacity>
+        <Card mb={4} variant="outline">
+          <CardBody p={4}>
+            <ClaimsFilter
+              filters={filters}
+              onChange={handleFilterChange}
+              totalResults={totalRecords}
+            />
+          </CardBody>
+        </Card>
+      </Collapse>
+
+      {/* Tabs Container */}
+      <Tabs variant="enclosed" colorScheme="blue">
         <TabList>
           <Tab>Claims Data</Tab>
-          <Tab>Summary</Tab>
         </TabList>
 
         <TabPanels>
-          <TabPanel px={0}>
-            {/* Actions Bar */}
-            <HStack mb={4} justify="space-between">
-              <HStack spacing={4}>
-                <ClaimsFilter
-                  filters={filters}
-                  onChange={handleFilterChange}
-                />
-                <ButtonGroup size="sm" isAttached variant="outline">
-                  <Button
-                    leftIcon={<Download size={16} />}
-                    onClick={handleExport}
-                  >
-                    Export
-                  </Button>
-                  <IconButton
-                    aria-label="Refresh data"
-                    icon={<RefreshCw size={16} />}
-                    onClick={handleRefresh}
-                  />
-                </ButtonGroup>
-              </HStack>
-            </HStack>
-
+          <TabPanel px={0} py={4}>
             {/* Claims Table */}
             <ClaimsTable
               claims={claims}
@@ -319,14 +387,20 @@ export default function ClaimsPage({}: ClaimsPageProps) {
               totalPages={totalPages}
               onPageChange={setCurrentPage}
               isLoading={loading}
+              onViewDetails={handleViewClaim}
             />
-          </TabPanel>
-
-          <TabPanel px={0}>
-            <ClaimsSummary fileId={file.fileId} />
           </TabPanel>
         </TabPanels>
       </Tabs>
+
+      {/* Claim Detail Panel (Slide-out) */}
+      {selectedClaim && (
+        <ClaimDetailPanel 
+          isOpen={isDetailPanelOpen} 
+          onClose={onCloseDetailPanel} 
+          claim={selectedClaim} 
+        />
+      )}
     </Container>
   );
 }
