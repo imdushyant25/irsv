@@ -41,14 +41,14 @@ Parameters:
   LambdaMemory:
     Type: Number
     Description: Lambda memory size in MB
-    Default: 1024
+    Default: 2048
     MinValue: 128
     MaxValue: 10240
   
   LambdaTimeout:
     Type: Number
     Description: Lambda timeout in seconds
-    Default: 300
+    Default: 600
     MinValue: 1
     MaxValue: 900
 

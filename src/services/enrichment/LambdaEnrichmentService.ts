@@ -113,7 +113,7 @@ export class LambdaEnrichmentService {
       const fileId = batches[0].fileId; // All batches have the same fileId
       
       // Process batches in parallel with a limit of 5 concurrent invocations
-      const concurrencyLimit = 5;
+      const concurrencyLimit = 10;
       
       for (let i = 0; i < batches.length; i += concurrencyLimit) {
         const batchGroup = batches.slice(i, i + concurrencyLimit);

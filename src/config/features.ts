@@ -27,6 +27,6 @@ export const features = {
    */
   batchSizes: {
     processingBatchSize: parseInt(process.env.PROCESSING_BATCH_SIZE || '500'),
-    enrichmentBatchSize: parseInt(process.env.ENRICHMENT_BATCH_SIZE || '100')
+    enrichmentBatchSize: parseInt(process.env.ENRICHMENT_BATCH_SIZE || '200')
   }
 };
