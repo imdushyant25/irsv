@@ -13,7 +13,8 @@
       "@aws-sdk/client-rds-data": "^3.0.0",
       "xlsx": "^0.18.5",
       "uuid": "^9.0.1",
-      "pg": "^8.13.3"
+      "pg": "^8.13.3",
+      "pg-format": "^1.0.4"
     },
     "devDependencies": {
       "@types/node": "^18.0.0",

@@ -61,19 +61,36 @@ export const handler = async (event: any) => {
       throw new Error(`Batch ${batchId} is not ready for enrichment, current status: ${batchInfo.processing_status}`);
     }
     
-    // Fetch claims for this batch
-    const claims = await fetchClaimRecords(client, fileId, startRow, endRow);
-    console.log(`Processing ${claims.length} claims for batch ${batchId}`);
+    // Get the drug lookup processor
+    const drugLookupProcessor = ruleProcessors.find(p => p.name === 'Drug Lookup Processor');
     
-    // Process each claim with rule processors
-    const results = await processClaims(client, claims, ruleProcessors);
+    if (!drugLookupProcessor) {
+      throw new Error('Drug Lookup Processor not found in rule processors');
+    }
+    
+    // Process the entire batch directly with database-tier operations
+    console.log(`Processing batch ${batchId} for file ${fileId} (rows ${startRow}-${endRow})`);
+    const results = await drugLookupProcessor.processBatch(client, fileId, startRow, endRow);
+    
+    console.log(`Batch processing results: ${results.enriched} enriched, ${results.failed} failed`);
+    
+    // Create rule stats for reporting
+    const ruleStats = [{
+      ruleId: drugLookupProcessor.ruleId,
+      name: drugLookupProcessor.name,
+      attempted: results.enriched + results.failed,
+      succeeded: results.enriched,
+      successRate: (results.enriched + results.failed > 0) 
+        ? (results.enriched / (results.enriched + results.failed)) * 100 
+        : 0
+    }];
     
     // Update batch status to COMPLETED
     await updateBatchEnrichmentStatus(client, batchId, BatchEnrichmentStatus.COMPLETED, {
-      totalProcessed: claims.length,
+      totalProcessed: results.totalProcessed,
       enriched: results.enriched,
       failed: results.failed,
-      ruleStats: results.ruleStats
+      ruleStats: ruleStats
     });
     
     // Check if all batches for this file are complete

@@ -1,5 +1,5 @@
 "use strict";
-// File: lambda/fileProcessor/index.ts
+// File: lambda/fileProcessor/index.ts - Enhanced with bulk inserts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,6 +33,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 const client_s3_1 = require("@aws-sdk/client-s3");
@@ -40,6 +43,7 @@ const client_lambda_1 = require("@aws-sdk/client-lambda");
 const pg_1 = require("pg");
 const XLSX = __importStar(require("xlsx"));
 const uuid_1 = require("uuid");
+const pg_format_1 = __importDefault(require("pg-format"));
 // Initialize S3 client
 const s3Client = new client_s3_1.S3Client({ region: process.env.AWS_REGION });
 // Initialize Lambda client
@@ -218,8 +222,8 @@ async function createBatchRecord(batchId, fileId, startRow, endRow, totalRows) {
         await client.query(`
       INSERT INTO batch_processing_status (
         batch_id, file_id, start_row, end_row, total_rows,
-        processing_status, enrichment_status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        processing_status, enrichment_status, enrichment_details
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `, [
             batchId,
             fileId,
@@ -227,7 +231,12 @@ async function createBatchRecord(batchId, fileId, startRow, endRow, totalRows) {
             endRow,
             totalRows,
             BatchStatus.PENDING,
-            BatchEnrichmentStatus.PENDING
+            BatchEnrichmentStatus.PENDING,
+            JSON.stringify({
+                basicEnrichmentApplied: true,
+                pendingEnrichments: ['drugLookupEnrichment'],
+                appliedEnrichments: ['ageEnrichment', 'channelEnrichment']
+            })
         ]);
     }
     finally {
@@ -375,41 +384,44 @@ async function processBatch(fileId, rows, mapping, startRowNumber) {
     const SUB_BATCH_SIZE = 25;
     for (let i = 0; i < rows.length; i += SUB_BATCH_SIZE) {
         const subBatch = rows.slice(i, i + SUB_BATCH_SIZE);
-        await processSubBatch(fileId, subBatch, mapping, startRowNumber + i);
+        await processSubBatchBulk(fileId, subBatch, mapping, startRowNumber + i);
     }
 }
 /**
- * Processes a smaller sub-batch of rows
+ * Processes a smaller sub-batch of rows using a bulk insert approach
  */
-async function processSubBatch(fileId, rows, mapping, startRowNumber) {
+async function processSubBatchBulk(fileId, rows, mapping, startRowNumber) {
     const client = await pool.connect();
     try {
         // Set schema first
         await setSchemaForClient(client);
         // Start transaction
         await client.query('BEGIN');
-        // Process each row in the sub-batch
-        for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
+        // Create bulk values array for all rows in the sub-batch
+        const bulkValues = rows.map((row, i) => {
             const rowNumber = startRowNumber + i;
             const claim = transformRowToClaim(row, mapping, rowNumber);
-            // Insert the claim record
-            await client.query(`INSERT INTO claim_records (
-          record_id, file_id, row_number, 
-          mapped_fields, unmapped_fields,
-          validation_status, processing_status,
-          created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
+            return [
                 claim.recordId,
                 fileId,
                 claim.rowNumber,
                 JSON.stringify(claim.mappedFields),
                 JSON.stringify(claim.unmappedFields),
+                JSON.stringify(claim.dynamicFields || {}), // Include dynamic fields, default to empty object
                 claim.validationStatus,
                 claim.processingStatus,
                 'lambda-system'
-            ]);
-        }
+            ];
+        });
+        // Use pg-format to create a single bulk insert query
+        const insertQuery = (0, pg_format_1.default)(`INSERT INTO claim_records (
+        record_id, file_id, row_number, 
+        mapped_fields, unmapped_fields, dynamic_fields,
+        validation_status, processing_status,
+        created_by
+      ) VALUES %L`, bulkValues);
+        // Execute the bulk insert query
+        await client.query(insertQuery);
         // Commit transaction
         await client.query('COMMIT');
     }
@@ -429,6 +441,7 @@ async function processSubBatch(fileId, rows, mapping, startRowNumber) {
 function transformRowToClaim(row, mapping, rowNumber) {
     const mappedFields = {};
     const unmappedFields = {};
+    const dynamicFields = {};
     // Process mapped fields
     for (const [sourceColumn, targetField] of Object.entries(mapping)) {
         if (row[sourceColumn] !== undefined) {
@@ -441,14 +454,116 @@ function transformRowToClaim(row, mapping, rowNumber) {
             unmappedFields[column] = value;
         }
     }
-    return {
+    // Create the base claim object
+    const claim = {
         recordId: (0, uuid_1.v4)(),
         rowNumber,
         mappedFields,
         unmappedFields,
+        dynamicFields,
         validationStatus: 'PENDING_VALIDATION',
         processingStatus: 'PROCESSED'
     };
+    // Apply age rules
+    const ageEnrichment = applyAgeRules(claim);
+    if (ageEnrichment) {
+        dynamicFields['ageEnrichment'] = ageEnrichment;
+    }
+    // Apply channel rules
+    const channelEnrichment = applyChannelRules(claim);
+    if (channelEnrichment) {
+        dynamicFields['channelEnrichment'] = channelEnrichment;
+    }
+    // Add dynamic fields to the claim if any enrichments were applied
+    if (Object.keys(dynamicFields).length > 0) {
+        return {
+            ...claim,
+            dynamicFields
+        };
+    }
+    return claim;
+}
+/**
+ * Calculate age between two dates
+ */
+function calculateAge(dob, referenceDate) {
+    let age = referenceDate.getFullYear() - dob.getFullYear();
+    const m = referenceDate.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && referenceDate.getDate() < dob.getDate())) {
+        age--;
+    }
+    return age;
+}
+/**
+ * Apply age rules to a claim
+ */
+function applyAgeRules(claim) {
+    try {
+        // Check if required fields exist
+        if (!claim.mappedFields.member_dob || !claim.mappedFields.fill_date) {
+            return null;
+        }
+        // Parse dates
+        const dob = new Date(claim.mappedFields.member_dob);
+        const fillDate = new Date(claim.mappedFields.fill_date);
+        const currentDate = new Date();
+        // Validate dates
+        if (isNaN(dob.getTime()) || isNaN(fillDate.getTime())) {
+            return null;
+        }
+        // Calculate ages
+        const ageAtFillDate = calculateAge(dob, fillDate);
+        const currentAge = calculateAge(dob, currentDate);
+        // Return the enrichment data
+        return {
+            currentAge,
+            ageAtFillDate,
+            isUnder65AtFillDate: ageAtFillDate < 65,
+            isUnder65AtCurrentDate: currentAge < 65
+        };
+    }
+    catch (error) {
+        console.error('Error applying age rules:', error);
+        return null;
+    }
+}
+/**
+ * Apply channel rules to a claim
+ */
+function applyChannelRules(claim) {
+    try {
+        // Check if required fields exist and there's no existing channel_indicator
+        if (!claim.mappedFields.days_supply || claim.mappedFields.channel_indicator) {
+            return null;
+        }
+        // Parse days_supply as a number
+        const daysSupply = Number(claim.mappedFields.days_supply);
+        // Validate days_supply
+        if (isNaN(daysSupply) || daysSupply <= 0) {
+            return null;
+        }
+        // Determine channel based on days_supply
+        let channel;
+        if (daysSupply > 83) {
+            channel = "Mail";
+        }
+        else if (daysSupply <= 30) {
+            channel = "Retail";
+        }
+        else {
+            // For values between 31-83, we consider it Retail90
+            channel = "Retail90";
+        }
+        // Return the enrichment data
+        return {
+            channel_indicator: channel,
+            derived_from_days_supply: daysSupply
+        };
+    }
+    catch (error) {
+        console.error('Error applying channel rules:', error);
+        return null;
+    }
 }
 /**
  * Updates the processing status using a provided client

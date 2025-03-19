@@ -1,138 +1,112 @@
 // File: lambda/enrichmentProcessor/processors/DrugLookUpProcessor.ts
 
-import { Pool } from 'pg';
+import { Pool, Client } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Rule processor for drug information lookup and enrichment
+ * Optimized to process batches of claims at the database tier
  */
 export class DrugLookUpProcessor {
-    name: string = 'Drug Lookup Processor';
-    ruleId: string = '3f91e6c0-4b5a-4c9f-8e7d-5a8c6a7b5d4g';
-    
-    /**
-     * Validates if the claim has the required fields for this rule
-     */
-    validate(claim: any): boolean {
-      // Verify that the claim has an NDC11 value to lookup
-      const hasNdc11 = Boolean(
-        claim.mappedFields && 
-        claim.mappedFields.ndc11 !== undefined && 
-        claim.mappedFields.ndc11 !== null &&
-        claim.mappedFields.ndc11 !== ''
-      );
-      
-      // Check if we already have these fields mapped to avoid redundant processing
-      const alreadyHasBrandGeneric = Boolean(claim.mappedFields?.brand_generic);
-      const alreadyHasSpecialtyIndicator = Boolean(claim.mappedFields?.specialty_indicator);
-      const alreadyHasPreventiveDrug = Boolean(claim.mappedFields?.preventive_drug);
-      
-      // Proceed if we have an NDC11 and at least one of the target fields is not already mapped
-      return hasNdc11 && (!alreadyHasBrandGeneric || !alreadyHasSpecialtyIndicator || !alreadyHasPreventiveDrug);
-    }
-    
-    /**
-     * Processes the claim to enrich with drug information
-     */
-    async process(claim: any): Promise<any> {
+  name: string = 'Drug Lookup Processor';
+  ruleId: string = '3f91e6c0-4b5a-4c9f-8e7d-5a8c6a7b5d4g';
+  
+  /**
+   * Process a batch of claims at the database tier
+   */
+  async processBatch(client: Client, fileId: string, startRow: number, endRow: number): Promise<{
+      totalProcessed: number;
+      enriched: number;
+      failed: number;
+      details?: any;
+  }> {
       try {
-        // Extract NDC11 from claim
-        const ndc11 = claim.mappedFields.ndc11;
-        
-        // We'll use the global pool provided by the Lambda environment
-        // This is similar to how the other processors would work
-        
-        // Query the drug_master table for the matching NDC11
-        // The query will be executed within the same transaction already started by the Lambda handler
-        const drugQuery = `
-          SELECT 
-            brand_generic,
-            specialty_indicator,
-            is_aca,
-            is_hdhp
-          FROM edpm.drug_master
-          WHERE ndc11 = $1
-          LIMIT 1
-        `;
-        
-        const dbConfig = {
-          host: process.env.DB_HOST,
-          port: parseInt(process.env.DB_PORT || '5432'),
-          database: process.env.DB_NAME,
-          user: process.env.DB_USER,
-          password: process.env.DB_PASSWORD,
-          ssl: {
-            rejectUnauthorized: false
-          }
-        };
-        
-        const { Client } = require('pg');
-        const client = new Client(dbConfig);
-        await client.connect();
-        
-        try {
-          // Execute query
-          const drugResult = await client.query(drugQuery, [ndc11]);
+          // Count total records in the batch to enrich
+          const countQuery = `
+              SELECT COUNT(*) as total
+              FROM claim_records
+              WHERE file_id = $1 AND row_number BETWEEN $2 AND $3
+          `;
+          const countResult = await client.query(countQuery, [fileId, startRow, endRow]);
+          const totalRecords = parseInt(countResult.rows[0].total || '0');
           
-          // If no matching drug found, return early
-          if (drugResult.rows.length === 0) {
-            return {
-              success: false,
-              fieldName: 'drugLookupEnrichment',
-              fieldValue: null,
-              error: `No drug found with NDC11: ${ndc11}`
-            };
-          }
+          // Perform the enrichment with a direct SQL update that joins tables
+          const enrichmentQuery = `
+              WITH enrichable_claims AS (
+                  SELECT 
+                      cr.record_id,
+                      cr.mapped_fields->>'ndc11' as ndc11
+                  FROM claim_records cr
+                  WHERE cr.file_id = $1 
+                  AND cr.row_number BETWEEN $2 AND $3
+                  AND cr.mapped_fields->>'ndc11' IS NOT NULL
+                  AND cr.mapped_fields->>'ndc11' != ''
+              ),
+              enrichment_data AS (
+                  SELECT 
+                      ec.record_id,
+                      jsonb_build_object(
+                          'brand_generic', dm.brand_generic,
+                          'specialty_indicator', dm.specialty_indicator,
+                          'preventive_drug', (dm.is_aca = true OR dm.is_hdhp = true)
+                      ) AS drug_data
+                  FROM enrichable_claims ec
+                  JOIN drug_master dm ON dm.ndc11 = ec.ndc11
+              )
+              UPDATE claim_records cr
+              SET 
+                  dynamic_fields = CASE 
+                      WHEN cr.dynamic_fields IS NULL OR cr.dynamic_fields = '{}'::jsonb 
+                      THEN jsonb_build_object('drugLookupEnrichment', ed.drug_data)
+                      ELSE jsonb_set(cr.dynamic_fields, '{drugLookupEnrichment}', ed.drug_data)
+                  END,
+                  updated_at = CURRENT_TIMESTAMP,
+                  updated_by = 'lambda-enrichment'
+              FROM enrichment_data ed
+              WHERE cr.record_id = ed.record_id
+              RETURNING cr.record_id
+          `;
           
-          // Extract the drug information
-          const drug = drugResult.rows[0];
+          const enrichmentResult = await client.query(enrichmentQuery, [fileId, startRow, endRow]);
+          // Ensure the rowCount is a number (not null)
+          const enrichedCount = enrichmentResult.rowCount || 0;
           
-          // Prepare the enrichment data
-          const enrichmentData: any = {};
+          // Count claims with NDCs that failed to enrich (not found in drug_master)
+          const failedQuery = `
+              SELECT COUNT(*) as failed
+              FROM claim_records cr
+              WHERE cr.file_id = $1 
+              AND cr.row_number BETWEEN $2 AND $3
+              AND cr.mapped_fields->>'ndc11' IS NOT NULL
+              AND cr.mapped_fields->>'ndc11' != ''
+              AND NOT EXISTS (
+                  SELECT 1 FROM drug_master dm 
+                  WHERE dm.ndc11 = cr.mapped_fields->>'ndc11'
+              )
+          `;
           
-          // Add brand_generic if not already mapped
-          if (!claim.mappedFields.brand_generic && drug.brand_generic) {
-            enrichmentData.brand_generic = drug.brand_generic;
-          }
+          const failedResult = await client.query(failedQuery, [fileId, startRow, endRow]);
+          const failedCount = parseInt(failedResult.rows[0].failed || '0');
           
-          // Add specialty_indicator if not already mapped
-          if (!claim.mappedFields.specialty_indicator && drug.specialty_indicator) {
-            enrichmentData.specialty_indicator = drug.specialty_indicator;
-          }
-          
-          // Add preventive_drug flag if not already mapped and either is_aca or is_hdhp is true
-          if (!claim.mappedFields.preventive_drug && (drug.is_aca === true || drug.is_hdhp === true)) {
-            enrichmentData.preventive_drug = true;
-          }
-          
-          // If no enrichment data was added, consider it a no-op success
-          if (Object.keys(enrichmentData).length === 0) {
-            return {
-              success: true,
-              fieldName: 'drugLookupEnrichment',
-              fieldValue: null,
-              message: `No new enrichment data for NDC11: ${ndc11}`
-            };
-          }
-          
-          // Return successful enrichment
           return {
-            success: true,
-            fieldName: 'drugLookupEnrichment',
-            fieldValue: enrichmentData
+              totalProcessed: totalRecords,
+              enriched: enrichedCount,
+              failed: failedCount,
+              details: {
+                  attemptedNdcLookups: enrichedCount + failedCount
+              }
           };
-        } finally {
-          // Make sure to close the client connection
-          await client.end();
-        }
       } catch (error) {
-        // Handle any errors during processing
-        return {
-          success: false,
-          fieldName: 'drugLookupEnrichment',
-          fieldValue: null,
-          error: error instanceof Error ? error.message : 'Unknown error during drug lookup'
-        };
+          console.error('Error in batch drug lookup:', error);
+          return {
+              totalProcessed: 0,
+              enriched: 0,
+              failed: 0,
+              details: {
+                  error: error instanceof Error ? error.message : 'Unknown error during drug lookup',
+                  stack: error instanceof Error ? error.stack : undefined
+              }
+          };
       }
-    }
-  }
+  }   
+}
