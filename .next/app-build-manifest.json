@@ -14,6 +14,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/page.js"
+    ],
+    "/opportunities/[opportunityId]/files/[fileId]/claims/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/claims/page.js"
     ]
   }
 }

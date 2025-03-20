@@ -495,15 +495,21 @@ function transformRowToClaim(
 
   // Process mapped fields
   for (const [sourceColumn, targetField] of Object.entries(mapping)) {
-    if (row[sourceColumn] !== undefined) {
-      mappedFields[targetField] = row[sourceColumn];
-    }
+    let found = false;
+    for (const excelHeader in row) {
+      if (excelHeader.trim() === sourceColumn) {
+        mappedFields[targetField] = row[excelHeader];
+        found = true;
+        break;
+      }
+    } 
   }
 
   // Store unmapped fields
-  for (const [column, value] of Object.entries(row)) {
-    if (!Object.keys(mapping).includes(column)) {
-      unmappedFields[column] = value;
+  for (const excelHeader in row) {
+    const trimmedHeader = excelHeader.trim();
+    if (!Object.keys(mapping).some(sourceCol => sourceCol === trimmedHeader)) {
+      unmappedFields[excelHeader] = row[excelHeader];
     }
   }
 

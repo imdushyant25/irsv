@@ -13,6 +13,33 @@ class DrugLookUpProcessor {
     }
     /**
      * Process a batch of claims at the database tier
+     * Enriches claims with drug information and plan exclusion indicators
+     * Stores results in the lookup_fields column of claim_records
+     *
+     * The enriched data will have this structure:
+     * {
+     *   "drug_info": {
+     *     "brand_generic": "G|B",
+     *     "specialty_indicator": boolean,
+     *     "preventive_drug": boolean
+     *   },
+     *   "planExclusions": {
+     *     "otc_drug_indicator": boolean,
+     *     "questionable_clinical_effectiveness": boolean,
+     *     "medical_benefit_only": boolean,
+     *     "lcv_wow": boolean,
+     *     "abortifacient": boolean,
+     *     "weight_loss_inj": boolean,
+     *     "weight_loss_oral": boolean,
+     *     "fertility": boolean,
+     *     "growth_hormone": boolean,
+     *     "desi": boolean
+     *   }
+     * }
+     */
+    /**
+     * For backward compatibility, we're maintaining the existing drugLookupEnrichment
+     * in dynamic_fields while adding the new data to lookup_fields
      */
     async processBatch(client, fileId, startRow, endRow) {
         try {
@@ -29,7 +56,8 @@ class DrugLookUpProcessor {
               WITH enrichable_claims AS (
                   SELECT 
                       cr.record_id,
-                      cr.mapped_fields->>'ndc11' as ndc11
+                      cr.mapped_fields->>'ndc11' as ndc11,
+                      cr.lookup_fields
                   FROM claim_records cr
                   WHERE cr.file_id = $1 
                   AND cr.row_number BETWEEN $2 AND $3
@@ -39,16 +67,41 @@ class DrugLookUpProcessor {
               enrichment_data AS (
                   SELECT 
                       ec.record_id,
+                      -- Data for lookup_fields column
+                      jsonb_build_object(
+                          'drug_info', jsonb_build_object(
+                              'brand_generic', dm.brand_generic,
+                              'specialty_indicator', dm.specialty_indicator,
+                              'preventive_drug', (dm.is_aca = true OR dm.is_hdhp = true)
+                          ),
+                          'planExclusions', jsonb_build_object(
+                              'otc_drug_indicator', COALESCE(dm.otc_drug_indicator, 'N'),
+                              'questionable_clinical_effectiveness', COALESCE(dm.questionable_clinical_effectiveness, 'N'),
+                              'medical_benefit_only', COALESCE(dm.medical_benefit_only, 'N'),
+                              'lcv_wow', COALESCE(dm.lcv_wow, 'N'),
+                              'abortifacient', COALESCE(dm.abortifacient, 'N'),
+                              'weight_loss_inj', COALESCE(dm.weight_loss_inj, 'N'),
+                              'weight_loss_oral', COALESCE(dm.weight_loss_oral, 'N'),
+                              'fertility', COALESCE(dm.fertility, 'N'),
+                              'growth_hormone', COALESCE(dm.growth_hormone, 'N'),
+                              'desi', COALESCE(dm.desi, 'N')
+                          )
+                      ) AS lookup_data,
+                      -- Data for dynamic_fields column (backward compatibility)
                       jsonb_build_object(
                           'brand_generic', dm.brand_generic,
                           'specialty_indicator', dm.specialty_indicator,
                           'preventive_drug', (dm.is_aca = true OR dm.is_hdhp = true)
-                      ) AS drug_data
+                      ) AS drug_data,
+                      ec.lookup_fields
                   FROM enrichable_claims ec
                   JOIN drug_master dm ON dm.ndc11 = ec.ndc11
               )
               UPDATE claim_records cr
               SET 
+                  -- Update lookup_fields with new format
+                  lookup_fields = COALESCE(cr.lookup_fields, '{}'::jsonb) || ed.lookup_data,
+                  -- Maintain existing dynamic_fields for backward compatibility
                   dynamic_fields = CASE 
                       WHEN cr.dynamic_fields IS NULL OR cr.dynamic_fields = '{}'::jsonb 
                       THEN jsonb_build_object('drugLookupEnrichment', ed.drug_data)
