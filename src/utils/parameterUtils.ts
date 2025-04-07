@@ -43,21 +43,21 @@ export const isValidNumber = (value?: string): boolean => {
 
 /**
  * Returns a default general information object with empty/default values
+ * Updated to use consistent field names matching the drugs_master table
  */
 export const getDefaultGeneralInformation = (): GeneralInformation => ({
   formulary: '',
   planExclusions: {
-    lcvWowExclusions: true,
-    medicalBenefitsExclusions: false,
-    desiDrugs: false,
-    otcDrugs: false,
-    compoundedMedications: false,
-    abortifacients: false,
-    glp1Weightloss: false,
-    weightlossNonGlp1: false,
+    lcv_wow: true,
+    medical_benefit_only: false,
+    desi: false,
+    otc_drug_ind: false,
+    abortifacient: false,
+    weight_loss_inj: false,
+    weight_loss_oral: false,
     fertility: false,
-    growthHormone: false,
-    questionableClinicalEffectiveness: false
+    growth_hormone: false,
+    questionable_clinical_effectiveness: false
   },
   dawPenalties: {
     daw1: false,

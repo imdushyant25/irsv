@@ -36,35 +36,31 @@ export function PlanExclusionsSection({
     tooltip?: string;
   }> = [
     {
-      key: 'lcvWowExclusions',
+      key: 'lcv_wow',
       label: 'LCV/WOW Exclusions',
     },
     {
-      key: 'medicalBenefitsExclusions',
+      key: 'medical_benefit_only',
       label: 'Medical Benefits Exclusions'
     },
     {
-      key: 'desiDrugs',
+      key: 'desi',
       label: 'DESI Drugs',
     },
     {
-      key: 'otcDrugs',
+      key: 'otc_drug_ind',
       label: 'Over-the-Counter Drugs',
     },
     {
-      key: 'compoundedMedications',
-      label: 'Compounded Medications',
-    },
-    {
-      key: 'abortifacients',
+      key: 'abortifacient',
       label: 'Abortifacients',
     },
     {
-      key: 'glp1Weightloss',
+      key: 'weight_loss_inj',
       label: 'GLP1 Weight Loss + Inj',
     },
     {
-      key: 'weightlossNonGlp1',
+      key: 'weight_loss_oral',
       label: 'Weight Loss (non-GLP1 / All Others)',
     },
     {
@@ -72,14 +68,13 @@ export function PlanExclusionsSection({
       label: 'Fertility',
     },
     {
-      key: 'growthHormone',
+      key: 'growth_hormone',
       label: 'Growth Hormone',
     },
     {
-      key: 'questionableClinicalEffectiveness',
+      key: 'questionable_clinical_effectiveness',
       label: 'Questionable Clinical Effectiveness',
     }
-    // Add other exclusions
   ];
 
   return (
@@ -94,7 +89,7 @@ export function PlanExclusionsSection({
               <Checkbox
                 isChecked={value[key]}
                 onChange={handleChange(key)}
-                isDisabled={key === 'lcvWowExclusions'} // Always enabled
+                isDisabled={key === 'lcv_wow'} // Always enabled
               >
                 {label}
               </Checkbox>

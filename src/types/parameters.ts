@@ -5,17 +5,16 @@ export interface FormularyParameters {
   }
   
   export interface PlanExclusions {
-    lcvWowExclusions: boolean;
-    medicalBenefitsExclusions: boolean;
-    desiDrugs: boolean;
-    otcDrugs: boolean;
-    compoundedMedications: boolean;
-    abortifacients: boolean;
-    glp1Weightloss: boolean;
-    weightlossNonGlp1: boolean;
+    lcv_wow: boolean;
+    medical_benefit_only: boolean;
+    desi: boolean;
+    otc_drug_ind: boolean;
+    abortifacient: boolean;
+    weight_loss_inj: boolean;
+    weight_loss_oral: boolean; 
     fertility: boolean;
-    growthHormone: boolean;
-    questionableClinicalEffectiveness: boolean;
+    growth_hormone: boolean;
+    questionable_clinical_effectiveness: boolean;
   }
   
   export interface DawPenalties {
