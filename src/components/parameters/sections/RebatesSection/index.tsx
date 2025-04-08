@@ -7,11 +7,9 @@ import {
   CardBody,
   Heading,
   VStack,
-  Divider,
 } from '@chakra-ui/react';
-import { FourthPBMRebates } from './FourthPBMRebates';
 import { IncumbentRebates } from './IncumbentRebates';
-import type { RebatesParameters } from '@/types/parameters';
+import type { RebatesParameters, PerClaimRebates, LumpSumRebates } from '@/types/parameters';
 
 interface RebatesSectionProps {
   value: RebatesParameters;
@@ -19,6 +17,42 @@ interface RebatesSectionProps {
 }
 
 export function RebatesSection({ value, onChange }: RebatesSectionProps) {
+  // Default rebate structures
+  const defaultPerClaimRebates: PerClaimRebates = {
+    nonSpecialtyBrand30DS: '',
+    nonSpecialtyBrand90DS: '',
+    nonSpecialtyMailBrand: '',
+    specialtyBrand: ''
+  };
+
+  const defaultLumpSumRebates: LumpSumRebates = {
+    amount: '',
+    nonSpecialtyBrandPercentage: '',
+    specialtyBrandPercentage: ''
+  };
+
+  // Ensure we have a safe value with all required fields
+  const safeValue: RebatesParameters = {
+    incumbent: {
+      type: value?.incumbent?.type || 'useFromClaims',
+      perClaimRebates: value?.incumbent?.perClaimRebates ? 
+        { ...defaultPerClaimRebates, ...value.incumbent.perClaimRebates } : 
+        defaultPerClaimRebates,
+      lumpSumRebates: value?.incumbent?.lumpSumRebates ? 
+        { ...defaultLumpSumRebates, ...value.incumbent.lumpSumRebates } : 
+        defaultLumpSumRebates
+    },
+    fourthPbm: {
+      type: value?.fourthPbm?.type || 'useFromClaims',
+      perClaimRebates: value?.fourthPbm?.perClaimRebates ? 
+        { ...defaultPerClaimRebates, ...value.fourthPbm.perClaimRebates } : 
+        defaultPerClaimRebates,
+      lumpSumRebates: value?.fourthPbm?.lumpSumRebates ? 
+        { ...defaultLumpSumRebates, ...value.fourthPbm.lumpSumRebates } : 
+        defaultLumpSumRebates
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -28,22 +62,13 @@ export function RebatesSection({ value, onChange }: RebatesSectionProps) {
         <VStack spacing={8} align="stretch">
           {/* Incumbent Rebates Section */}
           <IncumbentRebates
-            value={value.incumbent}
-            onChange={(incumbentValue) => onChange({
-              ...value,
-              incumbent: incumbentValue
-            })}
-          />
-          
-          <Divider />
-          
-          {/* 4th PBM Rebates Section */}
-          <FourthPBMRebates
-            value={value.fourthPbm}
-            onChange={(fourthPbmValue) => onChange({
-              ...value,
-              fourthPbm: fourthPbmValue
-            })}
+            value={safeValue.incumbent}
+            onChange={(incumbentValue) => {
+              onChange({
+                ...safeValue,
+                incumbent: incumbentValue
+              });
+            }}
           />
         </VStack>
       </CardBody>
@@ -52,7 +77,6 @@ export function RebatesSection({ value, onChange }: RebatesSectionProps) {
 }
 
 // Also export the sub-components for direct access if needed
-export { FourthPBMRebates } from './FourthPBMRebates';
 export { IncumbentRebates } from './IncumbentRebates';
 
 // Default export for the main component

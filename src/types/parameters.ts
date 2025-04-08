@@ -3,6 +3,22 @@
 export interface FormularyParameters {
     formulary: string;
   }
+
+  export type RebateType = 'useFromClaims' | 'perClaim' | 'lumpSum';
+
+  export interface PerClaimRebates {
+    nonSpecialtyBrand30DS: string;
+    nonSpecialtyBrand90DS: string;
+    nonSpecialtyMailBrand: string;
+    specialtyBrand: string;
+  }
+
+  export interface LumpSumRebates {
+    amount: string;
+    nonSpecialtyBrandPercentage: string;
+    specialtyBrandPercentage: string;
+  }
+
   
   export interface PlanExclusions {
     lcv_wow: boolean;
@@ -31,19 +47,15 @@ export interface FormularyParameters {
   }
   
   export interface RebateConfig {
-    type: 'detailed' | 'lumpSum' | 'contractTerms';
-    useContractTerms?: boolean;
-    retailBrand30?: string;
-    retailBrand90?: string;
-    mailBrand?: string;
-    specialtyBrand?: string;
-    lumpSum?: string;
-  }
+  type: RebateType;
+  perClaimRebates?: PerClaimRebates;
+  lumpSumRebates?: LumpSumRebates;
+}
   
-  export interface RebatesParameters {
-    incumbent: RebateConfig;
-    fourthPbm: RebateConfig;
-  }
+export interface RebatesParameters {
+  incumbent: RebateConfig;
+  fourthPbm: RebateConfig;
+}
   
   export interface AdminFees {
     perClaim: string;
@@ -82,11 +94,47 @@ export interface FormularyParameters {
     specialtyBrand: string;
   }
 
-  export interface CopayModelingParameters {
-    modelingType: 'userDefined' | 'illuminateRxStandards';
-    userDefined?: UserDefinedCopay;
-    illuminateRxStandards?: IlluminateRxStandardCopay;
+  export interface MemberCopays {
+    nsRetailGeneric30: string;
+    nsRetailPreferredBrand30: string;
+    nsRetailNonPreferredBrand30: string;
+    nsRetailGeneric90: string;
+    nsRetailPreferredBrand90: string;
+    nsRetailNonPreferredBrand90: string;
+    nsMailGeneric90: string;
+    nsMailPreferredBrand90: string;
+    nsMailNonPreferredBrand90: string;
+    specialtyGeneric: string;
+    specialtyPreferredBrand: string;
+    specialtyNonPreferredBrand: string;
   }
+
+  export interface CoinsuranceAmount {
+    percentage: string;
+    maximum: string;
+  }
+  
+  export interface MemberCoinsurance {
+    nsRetailGeneric30: CoinsuranceAmount;
+    nsRetailPreferredBrand30: CoinsuranceAmount;
+    nsRetailNonPreferredBrand30: CoinsuranceAmount;
+    nsRetailGeneric90: CoinsuranceAmount;
+    nsRetailPreferredBrand90: CoinsuranceAmount;
+    nsRetailNonPreferredBrand90: CoinsuranceAmount;
+    nsMailGeneric90: CoinsuranceAmount;
+    nsMailPreferredBrand90: CoinsuranceAmount;
+    nsMailNonPreferredBrand90: CoinsuranceAmount;
+    specialtyGeneric: CoinsuranceAmount;
+    specialtyPreferredBrand: CoinsuranceAmount;
+    specialtyNonPreferredBrand: CoinsuranceAmount;
+  }
+
+  export interface CopayModelingParameters {
+    modelingType: 'useClaimsFile' | 'memberCopays' | 'memberCoinsurance';
+    memberCopays?: MemberCopays;
+    memberCoinsurance?: MemberCoinsurance;
+  }
+
   
   export interface GeneralInformation {
     formulary: string;

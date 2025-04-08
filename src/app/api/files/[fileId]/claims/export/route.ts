@@ -10,8 +10,7 @@ interface ClaimRecord {
   'Processing Status': string;
   'Created At': Date;
   'Mapped Fields': Record<string, any>;
-  'Unmapped Fields': Record<string, any>;
-  'Dynamic Fields'?: Record<string, any>;
+  'Lookup Fields'?: Record<string, any>;
 }
 
 interface FlattenedClaimRecord {
@@ -43,13 +42,12 @@ export async function POST(
     const fileStatus = fileStatusResult.rows[0].status;
     const isEnriched = fileStatus === FileStatus.ENRICHED;
 
-    // Fetch claims data - include dynamic_fields if file is enriched
+    // Fetch claims data - include lookup_fields if file is enriched
     const queryText = `
       SELECT 
         row_number as "Row Number",
         mapped_fields as "Mapped Fields",
-        unmapped_fields as "Unmapped Fields",
-        ${isEnriched ? 'dynamic_fields as "Dynamic Fields",' : ''}
+        ${isEnriched ? 'lookup_fields as "Lookup Fields",' : ''}
         validation_status as "Validation Status",
         processing_status as "Processing Status",
         created_at as "Created At"
@@ -62,8 +60,7 @@ export async function POST(
 
     // Define column categories for organizing the export
     let mappedColumns: string[] = [];
-    let unmappedColumns: string[] = [];
-    let enrichedColumns: string[] = [];
+    let lookupColumns: string[] = [];
 
     // Process the data for Excel - excluding administrative columns
     const flattenedData: FlattenedClaimRecord[] = result.rows.map(row => {
@@ -77,34 +74,25 @@ export async function POST(
         }
       }
 
-      // Add unmapped fields with prefix
-      for (const [key, value] of Object.entries(row['Unmapped Fields'])) {
-        const unmappedKey = 'Unmapped_' + key;
-        baseRecord[unmappedKey] = value !== null ? String(value) : '';
-        if (!unmappedColumns.includes(unmappedKey)) {
-          unmappedColumns.push(unmappedKey);
-        }
-      }
-
-      // Add dynamic (enriched) fields with prefix if the file is enriched
-      if (isEnriched && row['Dynamic Fields']) {
-        for (const [key, value] of Object.entries(row['Dynamic Fields'])) {
-          // Handle nested objects in dynamic fields
+      // Add lookup fields with prefix if the file is enriched
+      if (isEnriched && row['Lookup Fields']) {
+        for (const [key, value] of Object.entries(row['Lookup Fields'])) {
+          // Handle nested objects in lookup fields
           if (typeof value === 'object' && value !== null) {
             // Flatten nested objects with dot notation
             for (const [nestedKey, nestedValue] of Object.entries(value)) {
-              const enrichedKey = `Enriched_${key}_${nestedKey}`;
-              baseRecord[enrichedKey] = nestedValue !== null ? String(nestedValue) : '';
-              if (!enrichedColumns.includes(enrichedKey)) {
-                enrichedColumns.push(enrichedKey);
+              const lookupKey = `Lookup_${key}_${nestedKey}`;
+              baseRecord[lookupKey] = nestedValue !== null ? String(nestedValue) : '';
+              if (!lookupColumns.includes(lookupKey)) {
+                lookupColumns.push(lookupKey);
               }
             }
           } else {
             // Handle non-nested values
-            const enrichedKey = `Enriched_${key}`;
-            baseRecord[enrichedKey] = value !== null ? String(value) : '';
-            if (!enrichedColumns.includes(enrichedKey)) {
-              enrichedColumns.push(enrichedKey);
+            const lookupKey = `Lookup_${key}`;
+            baseRecord[lookupKey] = value !== null ? String(value) : '';
+            if (!lookupColumns.includes(lookupKey)) {
+              lookupColumns.push(lookupKey);
             }
           }
         }
@@ -114,7 +102,7 @@ export async function POST(
     });
 
     // Organize columns by category
-    const allColumns = [...mappedColumns, ...unmappedColumns, ...enrichedColumns];
+    const allColumns = [...mappedColumns, ...lookupColumns];
     
     // Create workbook
     const wb = XLSX.utils.book_new();
@@ -136,12 +124,8 @@ export async function POST(
       categoryRow[0] = "MAPPED FIELDS";
     }
     
-    if (unmappedColumns.length > 0) {
-      categoryRow[mappedColumns.length] = "UNMAPPED FIELDS";
-    }
-    
-    if (enrichedColumns.length > 0) {
-      categoryRow[mappedColumns.length + unmappedColumns.length] = "ENRICHED FIELDS";
+    if (lookupColumns.length > 0) {
+      categoryRow[mappedColumns.length] = "LOOKUP FIELDS";
     }
     
     // Add the category row
@@ -169,18 +153,14 @@ export async function POST(
       ["1. MAPPED FIELDS"],
       ["   Standard field names from the mapping configuration"],
       ["   Examples: " + mappedColumns.slice(0, 3).join(", ") + (mappedColumns.length > 3 ? ", ..." : "")],
-      [""],
-      ["2. UNMAPPED FIELDS"],
-      ["   Original fields that were not mapped (prefixed with 'Unmapped_')"],
-      ["   Examples: " + unmappedColumns.slice(0, 3).join(", ") + (unmappedColumns.length > 3 ? ", ..." : "")],
       [""]
     ];
 
-    if (isEnriched && enrichedColumns.length > 0) {
+    if (isEnriched && lookupColumns.length > 0) {
       guideRows.push(
-        ["3. ENRICHED FIELDS"],
-        ["   Calculated fields added during enrichment (prefixed with 'Enriched_')"],
-        ["   Examples: " + enrichedColumns.slice(0, 3).join(", ") + (enrichedColumns.length > 3 ? ", ..." : "")],
+        ["2. LOOKUP FIELDS"],
+        ["   Enriched data fields from lookup services (prefixed with 'Lookup_')"],
+        ["   Examples: " + lookupColumns.slice(0, 3).join(", ") + (lookupColumns.length > 3 ? ", ..." : "")],
         [""]
       );
     }
