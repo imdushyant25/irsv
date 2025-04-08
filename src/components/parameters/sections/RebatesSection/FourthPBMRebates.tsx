@@ -16,7 +16,7 @@ import {
   Text,
   Box,
 } from '@chakra-ui/react';
-import { RebateConfig } from '@/types/parameters';
+import { RebateConfig, RebateType, PerClaimRebates, LumpSumRebates } from '@/types/parameters';
 
 interface FourthPBMRebatesProps {
   value: RebateConfig;
@@ -24,14 +24,14 @@ interface FourthPBMRebatesProps {
 }
 
 type RebateField = {
-  key: keyof Pick<RebateConfig, 'retailBrand30' | 'retailBrand90' | 'mailBrand' | 'specialtyBrand'>;
+  key: keyof PerClaimRebates;
   label: string;
 };
 
 const REBATE_FIELDS: RebateField[] = [
-  { key: 'retailBrand30', label: 'Retail Brand (30)' },
-  { key: 'retailBrand90', label: 'Retail Brand (90)' },
-  { key: 'mailBrand', label: 'Mail Brand' },
+  { key: 'nonSpecialtyBrand30DS', label: 'Retail Brand (30)' },
+  { key: 'nonSpecialtyBrand90DS', label: 'Retail Brand (90)' },
+  { key: 'nonSpecialtyMailBrand', label: 'Mail Brand' },
   { key: 'specialtyBrand', label: 'Specialty Brand' },
 ];
 
@@ -39,38 +39,71 @@ export const FourthPBMRebates: React.FC<FourthPBMRebatesProps> = ({ value, onCha
   const handleTypeChange = (type: string) => {
     // Create base configuration
     const baseConfig: RebateConfig = {
-      type: type as 'contractTerms' | 'detailed' | 'lumpSum',
-      useContractTerms: type === 'contractTerms',
-      retailBrand30: '',
-      retailBrand90: '',
-      mailBrand: '',
-      specialtyBrand: '',
-      lumpSum: ''
+      type: type as RebateType,
     };
+
+    if (type === 'perClaim') {
+      baseConfig.perClaimRebates = {
+        nonSpecialtyBrand30DS: '',
+        nonSpecialtyBrand90DS: '',
+        nonSpecialtyMailBrand: '',
+        specialtyBrand: ''
+      };
+    } else if (type === 'lumpSum') {
+      baseConfig.lumpSumRebates = {
+        amount: '',
+        nonSpecialtyBrandPercentage: '',
+        specialtyBrandPercentage: ''
+      };
+    }
 
     onChange(baseConfig);
   };
 
-  const handleValueChange = (field: keyof RebateConfig) => (valueString: string) => {
-    // Allow any numeric value with any decimal precision
+  const handlePerClaimChange = (field: keyof PerClaimRebates) => (valueString: string) => {
+    // Update perClaimRebates field with required values
+    const updatedPerClaimRebates: PerClaimRebates = {
+      nonSpecialtyBrand30DS: '',
+      nonSpecialtyBrand90DS: '',
+      nonSpecialtyMailBrand: '',
+      specialtyBrand: '',
+      ...value.perClaimRebates,
+      [field]: valueString
+    };
+    
     onChange({
       ...value,
-      [field]: valueString
+      perClaimRebates: updatedPerClaimRebates
     });
   };
 
-  const renderDetailedFields = () => (
+  const handleLumpSumChange = (field: keyof LumpSumRebates) => (valueString: string) => {
+    // Update lumpSumRebates field with required values
+    const updatedLumpSumRebates: LumpSumRebates = {
+      amount: '',
+      nonSpecialtyBrandPercentage: '',
+      specialtyBrandPercentage: '',
+      ...value.lumpSumRebates,
+      [field]: valueString
+    };
+    
+    onChange({
+      ...value,
+      lumpSumRebates: updatedLumpSumRebates
+    });
+  };
+
+  const renderPerClaimFields = () => (
     <Stack as="div" spacing={3} pl={6}>
       {REBATE_FIELDS.map((field) => (
         <FormControl key={field.key} isRequired>
           <FormLabel>{field.label}</FormLabel>
           <NumberInput
-            value={value[field.key] || ''}
-            onChange={handleValueChange(field.key)}
+            value={value?.perClaimRebates?.[field.key] || ''}
+            onChange={handlePerClaimChange(field.key)}
             min={0}
             // Remove precision limit to allow any number of decimals
             // Remove step size constraint
-            //placeholder="Enter value"
           >
             <NumberInputField />
           </NumberInput>
@@ -80,19 +113,40 @@ export const FourthPBMRebates: React.FC<FourthPBMRebatesProps> = ({ value, onCha
   );
 
   const renderLumpSumField = () => (
-    <FormControl pl={6}>
-      <FormLabel>Lump Sum Amount</FormLabel>
-      <NumberInput
-        value={value.lumpSum || ''}
-        onChange={handleValueChange('lumpSum')}
-        min={0}
-        // Remove precision limit to allow any number of decimals
-        // Remove step size constraint
-        //placeholder="Enter total amount"
-      >
-        <NumberInputField />
-      </NumberInput>
-    </FormControl>
+    <Stack as="div" spacing={3} pl={6}>
+      <FormControl>
+        <FormLabel>Lump Sum Amount</FormLabel>
+        <NumberInput
+          value={value?.lumpSumRebates?.amount || ''}
+          onChange={handleLumpSumChange('amount')}
+          min={0}
+        >
+          <NumberInputField />
+        </NumberInput>
+      </FormControl>
+      <FormControl>
+        <FormLabel>Non-Specialty Brand Percentage</FormLabel>
+        <NumberInput
+          value={value?.lumpSumRebates?.nonSpecialtyBrandPercentage || ''}
+          onChange={handleLumpSumChange('nonSpecialtyBrandPercentage')}
+          min={0}
+          max={100}
+        >
+          <NumberInputField />
+        </NumberInput>
+      </FormControl>
+      <FormControl>
+        <FormLabel>Specialty Brand Percentage</FormLabel>
+        <NumberInput
+          value={value?.lumpSumRebates?.specialtyBrandPercentage || ''}
+          onChange={handleLumpSumChange('specialtyBrandPercentage')}
+          min={0}
+          max={100}
+        >
+          <NumberInputField />
+        </NumberInput>
+      </FormControl>
+    </Stack>
   );
 
   return (
@@ -102,18 +156,18 @@ export const FourthPBMRebates: React.FC<FourthPBMRebatesProps> = ({ value, onCha
         
         <RadioGroup value={value.type} onChange={handleTypeChange}>
           <Stack as="div" spacing={4}>
-            <Radio value="contractTerms">
+            <Radio value="useFromClaims">
               <Stack as="div" spacing={1}>
-                <Text fontWeight="medium">Use Contract Terms</Text>
+                <Text fontWeight="medium">Use From Claims</Text>
               </Stack>
             </Radio>
 
-            <Radio value="detailed">
+            <Radio value="perClaim">
               <Stack as="div" spacing={1}>
-                <Text fontWeight="medium">Detailed Breakdown</Text>
+                <Text fontWeight="medium">Per Claim</Text>
               </Stack>
             </Radio>
-            {value.type === 'detailed' && renderDetailedFields()}
+            {value.type === 'perClaim' && renderPerClaimFields()}
 
             <Radio value="lumpSum">
               <Stack as="div" spacing={1}>

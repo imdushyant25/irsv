@@ -1,8 +1,8 @@
-// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/opportunities/[opportunityId]/files/[fileId]/claims/page.tsx
-import * as entry from '../../../../../../../../src/app/opportunities/[opportunityId]/files/[fileId]/claims/page.js'
+// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/opportunities/page.tsx
+import * as entry from '../../../../src/app/opportunities/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
-type TEntry = typeof import('../../../../../../../../src/app/opportunities/[opportunityId]/files/[fileId]/claims/page.js')
+type TEntry = typeof import('../../../../src/app/opportunities/page.js')
 
 // Check that the entry is a valid entry
 checkFields<Diff<{

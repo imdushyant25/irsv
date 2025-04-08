@@ -1,8 +1,8 @@
-// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/api/mapping/standard-fields/route.ts
-import * as entry from '../../../../../../src/app/api/mapping/standard-fields/route.js'
+// File: /Users/dushyantsingh/Documents/illuminate-rx/src/app/api/opportunities/[opportunityId]/general-information/route.ts
+import * as entry from '../../../../../../../src/app/api/opportunities/[opportunityId]/general-information/route.js'
 import type { NextRequest } from 'next/server.js'
 
-type TEntry = typeof import('../../../../../../src/app/api/mapping/standard-fields/route.js')
+type TEntry = typeof import('../../../../../../../src/app/api/opportunities/[opportunityId]/general-information/route.js')
 
 // Check that the entry is a valid entry
 checkFields<Diff<{
