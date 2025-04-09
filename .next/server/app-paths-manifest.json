@@ -1,8 +1,3 @@
 {
-  "/api/opportunities/route": "app/api/opportunities/route.js",
-  "/opportunities/page": "app/opportunities/page.js",
-  "/opportunities/[opportunityId]/page": "app/opportunities/[opportunityId]/page.js",
-  "/api/opportunities/[opportunityId]/route": "app/api/opportunities/[opportunityId]/route.js",
-  "/api/opportunities/[opportunityId]/files/route": "app/api/opportunities/[opportunityId]/files/route.js",
-  "/api/opportunities/[opportunityId]/general-information/route": "app/api/opportunities/[opportunityId]/general-information/route.js"
+  "/api/files/[fileId]/claims/export/route": "app/api/files/[fileId]/claims/export/route.js"
 }
