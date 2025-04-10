@@ -61,12 +61,14 @@ export function formatPercentage(value: number, decimals: number = 1): string {
  * Format currency value
  */
 export function formatCurrency(value: number): string {
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(value);
-  } catch {
-    return 'N/A';
+  if (value === null || value === undefined || isNaN(value)) {
+    return '$0.00';
   }
+  
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
 }

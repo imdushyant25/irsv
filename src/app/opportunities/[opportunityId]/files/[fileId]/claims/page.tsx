@@ -1,8 +1,9 @@
 // File: src/app/opportunities/[opportunityId]/files/[fileId]/claims/page.tsx
+
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Box,
   Button,
@@ -47,6 +48,7 @@ import Link from 'next/link';
 import { ClaimsTable } from '@/components/claims/ClaimsTable';
 import { ClaimsFilter } from '@/components/claims/ClaimsFilter';
 import ClaimDetailPanel from '@/components/claims/ClaimDetailPanel';
+import ExclusionsTab from './components/ExclusionsTab';  // Import the new component
 
 // Import types
 import { FileRecord, FileStatus } from '@/types/file';
@@ -65,7 +67,11 @@ interface ClaimRecord {
 export default function ClaimsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useToast();
+  
+  // Get active tab from URL or default to "data"
+  const activeTab = searchParams.get('tab') || 'data';
   
   // State management
   const [file, setFile] = useState<FileRecord | null>(null);
@@ -152,6 +158,14 @@ export default function ClaimsPage() {
       fetchClaims();
     }
   }, [currentPage, params?.fileId]);
+
+  // Handle tab change
+  const handleTabChange = (tabValue: string) => {
+    // Update URL with new tab parameter
+    const newParams = new URLSearchParams(searchParams.toString());
+    newParams.set('tab', tabValue);
+    router.push(`${window.location.pathname}?${newParams.toString()}`);
+  };
 
   const handleExport = async () => {
     try {
@@ -315,72 +329,82 @@ export default function ClaimsPage() {
         </Collapse>
       </Card>
 
-      {/* Actions & Filters */}
-      <Flex 
-        mb={4} 
-        wrap="wrap" 
-        justify="space-between" 
-        align="center"
-        gap={2}
-      >
-        <HStack>
-          <Button
-            leftIcon={<Filter size={16} />}
-            onClick={onToggleFilter}
-            size="sm"
-            colorScheme={isFilterOpen ? "blue" : "gray"}
-            variant={isFilterOpen ? "solid" : "outline"}
-          >
-            Filter
-          </Button>
+      {/* Actions & Filters - Only show for Claims Data tab */}
+      {activeTab === 'data' && (
+        <Flex 
+          mb={4} 
+          wrap="wrap" 
+          justify="space-between" 
+          align="center"
+          gap={2}
+        >
+          <HStack>
+            <Button
+              leftIcon={<Filter size={16} />}
+              onClick={onToggleFilter}
+              size="sm"
+              colorScheme={isFilterOpen ? "blue" : "gray"}
+              variant={isFilterOpen ? "solid" : "outline"}
+            >
+              Filter
+            </Button>
+            
+            <Button
+              leftIcon={<Download size={16} />}
+              onClick={handleExport}
+              size="sm"
+              colorScheme="green"
+              variant="outline"
+            >
+              Export
+            </Button>
+          </HStack>
           
-          <Button
-            leftIcon={<Download size={16} />}
-            onClick={handleExport}
-            size="sm"
-            colorScheme="green"
-            variant="outline"
-          >
-            Export
-          </Button>
-        </HStack>
-        
-        <HStack>
-          <Text fontSize="sm" color="gray.600">
-            Showing {claims.length} of {totalRecords.toLocaleString()} claims
-          </Text>
-          <IconButton
-            aria-label="Refresh data"
-            icon={<RefreshCw size={16} />}
-            onClick={handleRefresh}
-            size="sm"
-            variant="ghost"
-          />
-        </HStack>
-      </Flex>
-
-      {/* Filters Panel */}
-      <Collapse in={isFilterOpen} animateOpacity>
-        <Card mb={4} variant="outline">
-          <CardBody p={4}>
-            <ClaimsFilter
-              filters={filters}
-              onChange={handleFilterChange}
-              totalResults={totalRecords}
+          <HStack>
+            <Text fontSize="sm" color="gray.600">
+              Showing {claims.length} of {totalRecords.toLocaleString()} claims
+            </Text>
+            <IconButton
+              aria-label="Refresh data"
+              icon={<RefreshCw size={16} />}
+              onClick={handleRefresh}
+              size="sm"
+              variant="ghost"
             />
-          </CardBody>
-        </Card>
-      </Collapse>
+          </HStack>
+        </Flex>
+      )}
+
+      {/* Filters Panel - Only show for Claims Data tab */}
+      {activeTab === 'data' && (
+        <Collapse in={isFilterOpen} animateOpacity>
+          <Card mb={4} variant="outline">
+            <CardBody p={4}>
+              <ClaimsFilter
+                filters={filters}
+                onChange={handleFilterChange}
+                totalResults={totalRecords}
+              />
+            </CardBody>
+          </Card>
+        </Collapse>
+      )}
 
       {/* Tabs Container */}
-      <Tabs variant="enclosed" colorScheme="blue">
+      <Tabs 
+        variant="enclosed" 
+        colorScheme="blue"
+        index={activeTab === 'data' ? 0 : activeTab === 'exclusions' ? 1 : 0}
+        onChange={(index) => handleTabChange(index === 0 ? 'data' : 'exclusions')}
+      >
         <TabList>
           <Tab>Claims Data</Tab>
+          <Tab>Exclusions</Tab>
         </TabList>
 
         <TabPanels>
+          {/* Claims Data Tab */}
           <TabPanel px={0} py={4}>
-            {/* Claims Table */}
             <ClaimsTable
               claims={claims}
               currentPage={currentPage}
@@ -389,6 +413,11 @@ export default function ClaimsPage() {
               isLoading={loading}
               onViewDetails={handleViewClaim}
             />
+          </TabPanel>
+          
+          {/* Exclusions Tab */}
+          <TabPanel px={0} py={4}>
+            <ExclusionsTab fileId={params.fileId as string} />
           </TabPanel>
         </TabPanels>
       </Tabs>

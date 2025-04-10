@@ -32,7 +32,13 @@ export async function invokeLambda<T = any>(
   invocationType: InvocationType = InvocationType.RequestResponse
 ): Promise<T> {
   try {
-    console.log(`Invoking Lambda function ${functionName} with payload:`, payload);
+    console.log(`Invoking Lambda function ${functionName} with payload:`, JSON.stringify(payload, null, 2));
+    
+    // Add debug information for AWS credentials
+    console.log('AWS Region:', process.env.CUSTOM_AWS_REGION || 'us-east-1');
+    console.log('AWS Access Key ID (masked):', process.env.CUSTOM_AWS_ACCESS_KEY_ID 
+      ? `${process.env.CUSTOM_AWS_ACCESS_KEY_ID.substring(0, 4)}...` 
+      : 'Not provided');
     
     // Prepare the Lambda invocation parameters
     const params: InvocationRequest = {
@@ -42,13 +48,21 @@ export async function invokeLambda<T = any>(
     };
 
     // Invoke the Lambda function
+    console.log('Invoking Lambda with params:', JSON.stringify(params, (key, value) => 
+      key === 'Payload' ? '[Buffer]' : value, 2));
+    
     const command = new InvokeCommand(params);
     const response = await lambdaClient.send(command);
+
+    console.log('Lambda response status code:', response.$metadata.httpStatusCode);
+    console.log('Lambda response headers:', response.$metadata);
 
     // Handle the response
     if (response.FunctionError) {
       const errorPayload = response.Payload ? JSON.parse(Buffer.from(response.Payload).toString()) : {};
-      throw new Error(`Lambda execution failed: ${errorPayload.errorMessage || 'Unknown error'}`);
+      console.error('Lambda execution failed with FunctionError:', response.FunctionError);
+      console.error('Error payload:', errorPayload);
+      throw new Error(`Lambda execution failed: ${errorPayload.errorMessage || errorPayload.message || 'Unknown error'}`);
     }
 
     // Parse and return the response payload
@@ -61,11 +75,13 @@ export async function invokeLambda<T = any>(
         // Properly type the error
         const parseError = error as Error;
         console.error('Error parsing Lambda response:', parseError);
+        console.error('Raw response payload:', response.Payload ? Buffer.from(response.Payload).toString('hex') : null);
         throw new Error(`Failed to parse Lambda response: ${parseError.message}`);
       }
     }
     
     // Return empty object if no payload
+    console.log('No payload in Lambda response');
     return {} as T;
   } catch (error) {
     console.error(`Error invoking Lambda function ${functionName}:`, error);

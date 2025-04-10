@@ -1,0 +1,115 @@
+# File: lambda/exclusionsProcessor/template.yml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Pharmacy Benefits Platform - Exclusions Processor Lambda'
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: S3 bucket name for file storage
+    Default: your-s3-bucket-name
+  
+  DBHost:
+    Type: String
+    Description: Database host
+    Default: your-database-host
+  
+  DBPort:
+    Type: String
+    Description: Database port
+    Default: 5432
+  
+  DBName:
+    Type: String
+    Description: Database name
+    Default: your-database-name
+  
+  DBUser:
+    Type: String
+    Description: Database user
+    Default: your-database-user
+  
+  DBPassword:
+    Type: String
+    Description: Database password
+    NoEcho: true
+  
+  DBSchema:
+    Type: String
+    Description: Database schema
+    Default: edpm
+  
+  LambdaMemory:
+    Type: Number
+    Description: Lambda memory size in MB
+    Default: 2048
+    MinValue: 128
+    MaxValue: 10240
+  
+  LambdaTimeout:
+    Type: Number
+    Description: Lambda timeout in seconds
+    Default: 60
+    MinValue: 1
+    MaxValue: 900
+
+Resources:
+  ExclusionsProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: exclusions-processor
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Role: !GetAtt ExclusionsProcessorRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambda/exclusions-processor/function.zip
+      MemorySize: !Ref LambdaMemory
+      Timeout: !Ref LambdaTimeout
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          DB_HOST: !Ref DBHost
+          DB_PORT: !Ref DBPort
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUser
+          DB_PASSWORD: !Ref DBPassword
+          DB_SCHEMA: !Ref DBSchema
+
+  ExclusionsProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: ExclusionsProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:DeleteNetworkInterface'
+                Resource: '*'
+
+Outputs:
+  ExclusionsProcessorLambdaArn:
+    Description: ARN of the Exclusions Processor Lambda function
+    Value: !GetAtt ExclusionsProcessorLambda.Arn
+  
+  ExclusionsProcessorLambdaName:
+    Description: Name of the Exclusions Processor Lambda function
+    Value: !Ref ExclusionsProcessorLambda
