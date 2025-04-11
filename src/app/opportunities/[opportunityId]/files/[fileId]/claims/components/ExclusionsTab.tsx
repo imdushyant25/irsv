@@ -1,7 +1,7 @@
 // File: src/app/opportunities/[opportunityId]/files/[fileId]/claims/components/ExclusionsTab.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   VStack,
@@ -43,12 +43,12 @@ interface ExclusionCategory {
   unique_member_count: number;
 }
 
-// Type for API response
+// Type for API response - maintains backward compatibility
 interface ExclusionsResponse {
   exclusion_categories: ExclusionCategory[];
   optional_program_categories: ExclusionCategory[];
   total_plan_cost: number;
-  other_awp_sum: number | null;
+  other_awp_sum?: number | null;
 }
 
 interface ExclusionsTabProps {
@@ -59,17 +59,6 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [data, setData] = useState<ExclusionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCategories, setSelectedCategories] = useState<{ [key: string]: boolean }>({});
-  const [filteredData, setFilteredData] = useState<ExclusionCategory[]>([]);
-  const [categoryTotals, setCategoryTotals] = useState<{
-    totalPlanCost: number;
-    totalClaimCount: number;
-    totalMemberCount: number;
-  }>({
-    totalPlanCost: 0,
-    totalClaimCount: 0,
-    totalMemberCount: 0
-  });
   
   const toast = useToast();
 
@@ -78,69 +67,38 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchExclusionsData();
   }, [fileId]);
 
-  // Update filtered data and totals when selection changes
-  useEffect(() => {
-    if (data?.exclusion_categories) {
-      const filtered = data.exclusion_categories.filter(
-        category => selectedCategories[category.category]
-      );
-      
-      setFilteredData(filtered);
-      
-      // Calculate totals for selected categories
-      const totals = filtered.reduce(
-        (acc, category) => ({
-          totalPlanCost: acc.totalPlanCost + (category.plan_cost_sum || 0),
-          totalClaimCount: acc.totalClaimCount + (category.claim_count || 0),
-          totalMemberCount: acc.totalMemberCount + Math.max(0, category.unique_member_count || 0),
-        }),
-        { totalPlanCost: 0, totalClaimCount: 0, totalMemberCount: 0 }
-      );
-      
-      setCategoryTotals(totals);
-    }
-  }, [selectedCategories, data]);
+  // Calculate totals for a category group
+  const calculateTotals = useCallback((categories: ExclusionCategory[]) => {
+    return categories.reduce(
+      (acc, category) => ({
+        totalPlanCost: acc.totalPlanCost + (category.plan_cost_sum || 0),
+        totalClaimCount: acc.totalClaimCount + (category.claim_count || 0),
+        totalMemberCount: acc.totalMemberCount + Math.max(0, category.unique_member_count || 0),
+      }),
+      { totalPlanCost: 0, totalClaimCount: 0, totalMemberCount: 0 }
+    );
+  }, []);
 
-  // Initialize category selections when data is loaded
-  useEffect(() => {
-    if (data?.exclusion_categories) {
-      // Initially select all categories with non-zero values
-      const initialSelections = data.exclusion_categories.reduce((acc, category) => {
-        // Select categories with non-zero values by default
-        const hasData = category.plan_cost_sum > 0 || 
-                        category.claim_count > 0 || 
-                        category.unique_member_count > 0;
-        
-        acc[category.category] = hasData;
-        return acc;
-      }, {} as { [key: string]: boolean });
-      
-      setSelectedCategories(initialSelections);
-    }
-  }, [data]);
+  // Calculate grand totals across all categories
+  const calculateGrandTotals = useCallback(() => {
+    if (!data) return { totalPlanCost: 0, totalClaimCount: 0, totalMemberCount: 0 };
+    
+    const planExclusionCategories = data.exclusion_categories || [];
+    const drugFlagCategories = data.optional_program_categories || [];
+    
+    const allCategories = [...planExclusionCategories, ...drugFlagCategories];
+    
+    return calculateTotals(allCategories);
+  }, [data, calculateTotals]);
 
   // Fetch exclusions data from API
-  const fetchExclusionsData = async (categories?: string[]) => {
+  const fetchExclusionsData = async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Determine if we should use GET or POST based on whether we have category filters
-      let response;
-      
-      if (categories && categories.length > 0) {
-        // Use POST for filtering by categories
-        response = await fetch(`/api/files/${fileId}/exclusions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ categories })
-        });
-      } else {
-        // Use GET for initial data load
-        response = await fetch(`/api/files/${fileId}/exclusions`);
-      }
+      // Use GET for data load
+      const response = await fetch(`/api/files/${fileId}/exclusions`);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch exclusions data: ${response.statusText}`);
@@ -169,40 +127,6 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     }
   };
 
-  // Handle category toggle
-  const handleCategoryToggle = (category: string, isChecked: boolean) => {
-    setSelectedCategories(prev => ({
-      ...prev,
-      [category]: isChecked
-    }));
-  };
-
-  // Toggle all categories
-  const handleToggleAll = (isChecked: boolean) => {
-    if (data?.exclusion_categories) {
-      const newSelections = data.exclusion_categories.reduce((acc, category) => {
-        acc[category.category] = isChecked;
-        return acc;
-      }, {} as { [key: string]: boolean });
-      
-      setSelectedCategories(newSelections);
-    }
-  };
-
-  // Calculate if all categories are selected
-  const allSelected = data?.exclusion_categories?.every(
-    category => selectedCategories[category.category]
-  ) || false;
-
-  // Handle refresh click
-  const handleRefresh = () => {
-    const selectedCategoryNames = Object.entries(selectedCategories)
-      .filter(([_, isSelected]) => isSelected)
-      .map(([category]) => category);
-    
-    fetchExclusionsData(selectedCategoryNames);
-  };
-
   // Render percentage of total plan cost
   const renderPercentage = (cost: number) => {
     if (!data?.total_plan_cost || data.total_plan_cost === 0) return '0%';
@@ -215,6 +139,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
         <VStack spacing={4}>
           <Spinner size="xl" />
           <Text>Loading exclusions data...</Text>
+          <Text fontSize="sm" color="gray.500">
+            This may take up to a minute to compile all exclusions
+          </Text>
         </VStack>
       </Box>
     );
@@ -230,120 +157,113 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   }
 
-  return (
-    <VStack spacing={6} align="stretch">
-      <Card variant="outline">
+  // Get category data
+  const planExclusions = data?.exclusion_categories || [];
+  const drugFlags = data?.optional_program_categories || [];
+  
+  // Calculate totals
+  const planExclusionTotals = calculateTotals(planExclusions);
+  const drugFlagTotals = calculateTotals(drugFlags);
+  const grandTotals = calculateGrandTotals();
+
+  // Create table for a category type
+  const renderCategoryTable = (
+    title: string, 
+    categories: ExclusionCategory[], 
+    totals: { totalPlanCost: number; totalClaimCount: number; totalMemberCount: number }
+  ) => {
+    return (
+      <Card variant="outline" mb={4}>
         <CardHeader px={6} py={4}>
-          <HStack justify="space-between">
-            <Heading size="md">Exclusion Categories</Heading>
-            <HStack>
-              <Button
-                leftIcon={<RefreshCw size={16} />}
-                colorScheme="blue"
-                size="sm"
-                onClick={handleRefresh}
-                isLoading={loading}
-              >
-                Apply Filters
-              </Button>
-            </HStack>
-          </HStack>
+          <Heading size="md">{title}</Heading>
         </CardHeader>
         <CardBody px={6} pt={0} pb={4}>
-          <Divider mb={4} />
-          
-          {/* Selection controls */}
-          <HStack mb={4} justify="space-between">
-            <FormControl display="flex" alignItems="center" width="auto">
-              <Switch
-                id="toggle-all"
-                isChecked={allSelected}
-                onChange={(e) => handleToggleAll(e.target.checked)}
-              />
-              <FormLabel htmlFor="toggle-all" mb="0" ml="2" cursor="pointer">
-                Toggle All Categories
-              </FormLabel>
-            </FormControl>
-            
-            <Text fontSize="sm" color="gray.600">
-              Total Plan Cost: {formatCurrency(data?.total_plan_cost || 0)}
-            </Text>
-          </HStack>
-          
-          {/* Category toggles */}
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4} mb={6}>
-            {data?.exclusion_categories?.map((category) => (
-              <FormControl 
-                key={category.category} 
-                display="flex" 
-                alignItems="center"
-                bg={category.plan_cost_sum > 0 || category.claim_count > 0 ? "blue.50" : "transparent"}
-                p={2}
-                borderRadius="md"
-              >
-                <Switch
-                  id={`category-${category.category}`}
-                  isChecked={selectedCategories[category.category] || false}
-                  onChange={(e) => handleCategoryToggle(category.category, e.target.checked)}
-                />
-                <FormLabel htmlFor={`category-${category.category}`} mb="0" ml="2" cursor="pointer" fontSize="sm">
-                  <HStack>
-                    <Text>{category.category}</Text>
-                    {(category.plan_cost_sum > 0 || category.claim_count > 0) && (
-                      <Badge colorScheme="blue" variant="solid">
-                        {category.claim_count}
-                      </Badge>
-                    )}
-                  </HStack>
-                </FormLabel>
-              </FormControl>
-            ))}
-          </SimpleGrid>
-          
-          {/* Results table */}
           <Box overflowX="auto">
             <Table variant="simple" size="sm">
               <Thead>
                 <Tr bg="gray.50">
                   <Th>Category</Th>
                   <Th isNumeric>Plan Cost</Th>
-                  <Th isNumeric>% of Total</Th>
+                  <Th isNumeric>% of Total Plan Cost</Th>
                   <Th isNumeric>Claim Count</Th>
                   <Th isNumeric>Unique Members</Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {filteredData.map((category) => (
-                  <Tr key={category.category}>
-                    <Td fontWeight="medium">{category.category}</Td>
-                    <Td isNumeric>{formatCurrency(category.plan_cost_sum)}</Td>
-                    <Td isNumeric>{renderPercentage(category.plan_cost_sum)}</Td>
-                    <Td isNumeric>{category.claim_count}</Td>
-                    <Td isNumeric>{category.unique_member_count}</Td>
-                  </Tr>
-                ))}
-                
-                {/* Totals row */}
-                {filteredData.length > 0 && (
-                  <Tr fontWeight="bold" bg="gray.50">
-                    <Td>Grand Total</Td>
-                    <Td isNumeric>{formatCurrency(categoryTotals.totalPlanCost)}</Td>
-                    <Td isNumeric>{renderPercentage(categoryTotals.totalPlanCost)}</Td>
-                    <Td isNumeric>{categoryTotals.totalClaimCount}</Td>
-                    <Td isNumeric>{categoryTotals.totalMemberCount}</Td>
-                  </Tr>
-                )}
-                
-                {filteredData.length === 0 && (
+                {categories.length > 0 ? (
+                  <>
+                    {categories.map((category) => (
+                      <Tr key={category.category}>
+                        <Td fontWeight="medium">{category.category}</Td>
+                        <Td isNumeric>{formatCurrency(category.plan_cost_sum)}</Td>
+                        <Td isNumeric>{renderPercentage(category.plan_cost_sum)}</Td>
+                        <Td isNumeric>{category.claim_count}</Td>
+                        <Td isNumeric>{category.unique_member_count}</Td>
+                      </Tr>
+                    ))}
+                    <Tr fontWeight="bold" bg="gray.50">
+                      <Td>{title} Total</Td>
+                      <Td isNumeric>{formatCurrency(totals.totalPlanCost)}</Td>
+                      <Td isNumeric>{renderPercentage(totals.totalPlanCost)}</Td>
+                      <Td isNumeric>{totals.totalClaimCount}</Td>
+                      <Td isNumeric>{totals.totalMemberCount}</Td>
+                    </Tr>
+                  </>
+                ) : (
                   <Tr>
                     <Td colSpan={5} textAlign="center" py={4}>
-                      No categories selected. Please select at least one category to view results.
+                      No {title.toLowerCase()} categories found.
                     </Td>
                   </Tr>
                 )}
               </Tbody>
             </Table>
           </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  return (
+    <VStack spacing={6} align="stretch">
+      {/* Summary header */}
+      <HStack justify="space-between" px={2}>
+        <Heading size="md">Exclusions Analysis</Heading>
+        <Text fontWeight="bold">
+          Total Plan Cost: {formatCurrency(data?.total_plan_cost || 0)}
+        </Text>
+      </HStack>
+      
+      {/* Plan Exclusions Table */}
+      {renderCategoryTable("Plan Exclusions", planExclusions, planExclusionTotals)}
+      
+      {/* Drug Flags Table */}
+      {renderCategoryTable("Drug Flags", drugFlags, drugFlagTotals)}
+      
+      {/* Grand Total Summary */}
+      <Card variant="outline">
+        <CardBody px={6} py={4} bg="blue.50">
+          <HStack justify="space-between">
+            <Heading size="md">Grand Total (All Exclusions)</Heading>
+            <HStack spacing={6}>
+              <VStack align="flex-end" spacing={0}>
+                <Text fontSize="sm" color="gray.600">Plan Cost</Text>
+                <Text fontWeight="bold">{formatCurrency(grandTotals.totalPlanCost)}</Text>
+              </VStack>
+              <VStack align="flex-end" spacing={0}>
+                <Text fontSize="sm" color="gray.600">% of Total Plan Cost</Text>
+                <Text fontWeight="bold">{renderPercentage(grandTotals.totalPlanCost)}</Text>
+              </VStack>
+              <VStack align="flex-end" spacing={0}>
+                <Text fontSize="sm" color="gray.600">Claims</Text>
+                <Text fontWeight="bold">{grandTotals.totalClaimCount}</Text>
+              </VStack>
+              <VStack align="flex-end" spacing={0}>
+                <Text fontSize="sm" color="gray.600">Members</Text>
+                <Text fontWeight="bold">{grandTotals.totalMemberCount}</Text>
+              </VStack>
+            </HStack>
+          </HStack>
         </CardBody>
       </Card>
     </VStack>

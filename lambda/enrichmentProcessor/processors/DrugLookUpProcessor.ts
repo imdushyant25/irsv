@@ -46,8 +46,22 @@ export class DrugLookUpProcessor {
         cr.lookup_fields,
         o.opportunity_metadata->'generalInformation' as general_info,
         o.opportunity_metadata->'generalInformation'->>'formulary' as formulary,
-        o.opportunity_metadata->'generalInformation'->'copayModeling'->>'modelingType' as modeling_type
-    FROM claim_records cr
+        o.opportunity_metadata->'generalInformation'->'copayModeling'->>'modelingType' as modeling_type,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'desi' as opp_desi,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'lcv_wow' as opp_lcv_wow,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'fertility' as opp_fertility,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'abortifacient' as opp_abortifacient,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'growth_hormone' as opp_growth_hormone,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'weight_loss_inj' as opp_weight_loss_inj,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'weight_loss_oral' as opp_weight_loss_oral,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'medical_benefit_only' as opp_medical_benefit_only,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'questionable_clinical_effectiveness' as opp_questionable_clinical_effectiveness,
+        o.opportunity_metadata->'generalInformation'->'planExclusions'->>'otc_drug_ind' as opp_otc_drug_ind,
+        o.opportunity_metadata->'generalInformation'->'flags'->>'ids' as opp_ids,
+        o.opportunity_metadata->'generalInformation'->'flags'->>'pap' as opp_pap,
+        o.opportunity_metadata->'generalInformation'->'flags'->>'hans' as opp_hans,
+        o.opportunity_metadata->'generalInformation'->'flags'->>'mcap' as opp_mcap
+        FROM claim_records cr
     JOIN claims_file_registry cfr ON cr.file_id = cfr.file_id
     JOIN opportunity o ON cfr.opportunity_id = o.opportunity_id
     WHERE cr.file_id = $1
@@ -66,6 +80,20 @@ drug_classification_cte AS (
         ec.quantity,
         ec.member_cost,
         ec.days_supply,
+        ec.opp_desi,
+        ec.opp_lcv_wow,
+        ec.opp_fertility,
+        ec.opp_abortifacient,
+        ec.opp_growth_hormone,
+        ec.opp_weight_loss_inj,
+        ec.opp_weight_loss_oral,
+        ec.opp_medical_benefit_only,
+        ec.opp_questionable_clinical_effectiveness,
+        ec.opp_otc_drug_ind,
+        ec.opp_ids,
+        ec.opp_pap,
+        ec.opp_hans,
+        ec.opp_mcap,
         dm.drug_label_name,
         dm.drug_name,
         dm.specialty_indicator,
@@ -168,6 +196,10 @@ drug_classification_cte AS (
         dm.growth_hormone as orig_growth_hormone,
         dm.desi as orig_desi,
         dm.otc_drug_ind as orig_otc_drug_ind,
+        dm.is_mcap as orig_is_mcap,
+        dm.is_pap as orig_is_pap,
+        dm.is_ids as orig_is_ids,
+        dm.is_hans as orig_is_hans,
         
         -- Include the average rebate per day supply value
         dm.avg_rebate_per_DS
@@ -185,6 +217,8 @@ enrichment_data AS (
         dc.drug_name,
         dc.drug_classification,
         dc.is_in_formulary,
+        dc.fill_date,
+        dc.quantity,
         awp.unit_price as mspan_unit_price,
         CASE 
             WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL 
@@ -199,7 +233,20 @@ enrichment_data AS (
         dc.days_supply::numeric as days_supply,
         dc.awp_discount::numeric as awp_discount,
         dc.member_cost::numeric as member_cost,
-        
+        dc.opp_desi,
+        dc.opp_lcv_wow,
+        dc.opp_fertility,
+        dc.opp_abortifacient,
+        dc.opp_growth_hormone,
+        dc.opp_weight_loss_inj,
+        dc.opp_weight_loss_oral,
+        dc.opp_medical_benefit_only,
+        dc.opp_questionable_clinical_effectiveness,
+        dc.opp_otc_drug_ind,
+        dc.opp_ids,
+        dc.opp_pap,
+        dc.opp_hans,
+        dc.opp_mcap,
         -- Classification flags
         dc.orig_questionable_clinical_effectiveness,
         dc.orig_medical_benefit_only,
@@ -211,6 +258,11 @@ enrichment_data AS (
         dc.orig_growth_hormone,
         dc.orig_desi,
         dc.orig_otc_drug_ind,
+        dc.orig_is_mcap,
+        dc.orig_is_pap,
+        dc.orig_is_ids,
+        dc.orig_is_hans,
+        
         
         -- Include the average rebate per day supply value
         dc.avg_rebate_per_DS,
@@ -253,22 +305,91 @@ enrichment_data AS (
         END as normalized_avg_rebate_per_DS,
         
         -- Member copay logic with proper casting
+CASE
+    WHEN dc.modeling_type = 'useClaimsFile' AND dc.member_cost IS NOT NULL THEN
+        dc.member_cost::numeric
+
+    WHEN dc.modeling_type = 'memberCopays' AND dc.drug_classification IS NOT NULL THEN
         CASE
-            WHEN dc.modeling_type = 'useClaimsFile' AND dc.member_cost IS NOT NULL THEN
-                dc.member_cost::numeric
-            WHEN dc.modeling_type = 'memberCopays' AND dc.drug_classification IS NOT NULL THEN
-                CASE
-                    WHEN dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification IS NULL 
-                        OR dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification = '' THEN NULL::numeric
-                    ELSE (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::numeric
+            WHEN dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification IS NULL 
+              OR dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification = '' THEN NULL::numeric
+            ELSE (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::numeric
+        END
+
+    WHEN dc.modeling_type = 'memberCoinsurance' AND dc.drug_classification IS NOT NULL THEN
+        LEAST(
+            COALESCE(
+                (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::numeric / 100.0 *
+                -- Inline reprice_gross_cost logic here:
+                CASE 
+                    WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
+                        CASE 
+                            WHEN dc.specialty_indicator = 'Y' THEN 
+                                (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            ELSE 
+                                CASE 
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric <= 30 THEN 
+                                        (1 - 0.20) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric <= 30 THEN 
+                                        (1 - 0.87) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
+                                        (1 - 0.215) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
+                                        (1 - 0.89) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    ELSE (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                END
+                        END
+                    ELSE NULL
+                END,
+                -- fallback to gross cost
+                CASE 
+                    WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
+                        CASE 
+                            WHEN dc.specialty_indicator = 'Y' THEN 
+                                (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            ELSE 
+                                CASE 
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric <= 30 THEN 
+                                        (1 - 0.20) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric <= 30 THEN 
+                                        (1 - 0.87) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
+                                        (1 - 0.215) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
+                                        (1 - 0.89) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    ELSE (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                END
+                        END
+                    ELSE NULL
                 END
-            WHEN dc.modeling_type = 'memberCoinsurance' AND dc.drug_classification IS NOT NULL THEN
-                -- Coinsurance calculation logic (abbreviated for brevity)
-                NULL::numeric
-            ELSE NULL::numeric
-        END as member_copay
+            ),
+            COALESCE(
+                (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'maximum')::numeric,
+                CASE 
+                    WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
+                        CASE 
+                            WHEN dc.specialty_indicator = 'Y' THEN 
+                                (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            ELSE 
+                                CASE 
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric <= 30 THEN 
+                                        (1 - 0.20) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric <= 30 THEN 
+                                        (1 - 0.87) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
+                                        (1 - 0.215) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
+                                        (1 - 0.89) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    ELSE (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                END
+                        END
+                    ELSE NULL
+                END
+            )
+        )
         
-    FROM drug_classification_cte dc
+    ELSE NULL::numeric
+END AS member_copay    FROM drug_classification_cte dc
     LEFT JOIN edpm.mspan_awp_info awp ON 
         awp.ndc11 = dc.ndc11 AND 
         (dc.fill_date::date BETWEEN awp.awp_effective_from_date AND COALESCE(awp.awp_effective_thru_date, '9999-12-31'::date))
@@ -312,8 +433,14 @@ final_enrichment AS (
         reprice_gross_cost,
         reprice_plan_cost,
         member_copay,
+        member_cost,
         days_supply,
         normalized_avg_rebate_per_DS,
+        fill_date,
+        quantity,
+        formulary,
+        is_closed_formulary,
+        is_open_formulary,
         COALESCE(orig_questionable_clinical_effectiveness, 'N') as questionable_clinical_effectiveness,
         COALESCE(orig_medical_benefit_only, 'N') as medical_benefit_only,
         COALESCE(orig_lcv_wow, 'N') as lcv_wow,
@@ -324,18 +451,33 @@ final_enrichment AS (
         COALESCE(orig_growth_hormone, 'N') as growth_hormone,
         COALESCE(orig_desi, 'N') as desi,
         COALESCE(orig_otc_drug_ind, 'N') as otc_drug_ind,
+        COALESCE(orig_is_mcap, 'N') as is_mcap,
+        COALESCE(orig_is_pap, 'N') as is_pap,
+        COALESCE(orig_is_ids, 'N') as is_ids,
+        COALESCE(orig_is_hans, 'N') as is_hans,
+        opp_questionable_clinical_effectiveness as o_questionable_clinical_effectiveness,
+        opp_medical_benefit_only as o_medical_benefit_only,
+        opp_lcv_wow as o_lcv_wow,
+        opp_abortifacient as o_abortifacient,
+        opp_weight_loss_inj as o_weight_loss_inj,
+        opp_weight_loss_oral as o_weight_loss_oral,
+        opp_fertility as o_fertility,
+        opp_growth_hormone as o_growth_hormone,
+        opp_desi as o_desi,
+        opp_otc_drug_ind as o_otc_drug_ind,
+        opp_ids as o_ids,
+        opp_pap as o_pap,
+        opp_hans as o_hans,
+        opp_mcap as o_mcap,
         specialty_indicator,
         brnd_gnrc,
         CASE 
             WHEN specialty_indicator = 'Y' THEN COALESCE(awp_discount, 0)
-            ELSE 
-                CASE 
-                    WHEN brnd_gnrc LIKE 'B%' AND days_supply <= 30 THEN 0.20
-                    WHEN brnd_gnrc LIKE 'G%' AND days_supply <= 30 THEN 0.87
-                    WHEN brnd_gnrc LIKE 'B%' AND days_supply > 30 THEN 0.215
-                    WHEN brnd_gnrc LIKE 'G%' AND days_supply > 30 THEN 0.89
-                    ELSE COALESCE(awp_discount, 0)
-                END
+            WHEN brnd_gnrc LIKE 'B%' AND days_supply::numeric <= 30 THEN 0.20
+            WHEN brnd_gnrc LIKE 'G%' AND days_supply::numeric <= 30 THEN 0.87
+            WHEN brnd_gnrc LIKE 'B%' AND days_supply::numeric > 30 THEN 0.215
+            WHEN brnd_gnrc LIKE 'G%' AND days_supply::numeric > 30 THEN 0.89
+            ELSE COALESCE(awp_discount, 0)
         END as applied_awp_discount,
         
         -- Calculate Net Plan Cost
@@ -351,6 +493,13 @@ complete_enrichment AS (
     SELECT
         record_id,
         ndc11,
+        fill_date,
+        days_supply,
+        quantity,
+        member_cost,
+        formulary,
+        is_closed_formulary,
+        is_open_formulary,
         drug_label_name,
         drug_name,
         is_in_formulary,
@@ -369,6 +518,24 @@ complete_enrichment AS (
         growth_hormone,
         desi,
         otc_drug_ind,
+        is_pap,
+        is_mcap,
+        is_ids,
+        is_hans,
+        o_questionable_clinical_effectiveness,
+        o_medical_benefit_only,
+        o_lcv_wow,
+        o_abortifacient,
+        o_weight_loss_inj,
+        o_weight_loss_oral,
+        o_fertility,
+        o_growth_hormone,
+        o_desi,
+        o_otc_drug_ind,
+        o_ids,
+        o_pap,
+        o_hans,
+        o_mcap,
         applied_awp_discount,
         normalized_avg_rebate_per_DS as avg_rebate_per_DS,
         specialty_indicator,
@@ -376,7 +543,7 @@ complete_enrichment AS (
         reprice_net_plan_cost
     FROM final_enrichment
 )
-UPDATE claim_records cr
+UPDATE edpm.claim_records cr
 SET 
     lookup_fields = COALESCE(cr.lookup_fields, '{}'::jsonb) || jsonb_build_object(
         'ndc11', ce.ndc11,
@@ -399,9 +566,35 @@ SET
         'growth_hormone', ce.growth_hormone,
         'desi', ce.desi,
         'otc_drug_ind', ce.otc_drug_ind,
+        'pap', ce.is_pap,
+        'mcap', ce.is_mcap,
+        'ids', ce.is_ids,
+        'hans', ce.is_hans,    
         'applied_awp_discount', ce.applied_awp_discount,
-        'avg_rebate_per_DS', ce.avg_rebate_per_DS
-    ),
+        'avg_rebate_per_DS', ce.avg_rebate_per_DS,
+        'specialty_indicator', ce.specialty_indicator,
+        'brnd_gnrc', ce.brnd_gnrc,
+        'fill_date', ce.fill_date,
+        'days_supply', ce.days_supply,
+        'quantity', ce.quantity,
+        'px_questionable_clinical_effectiveness', ce.o_questionable_clinical_effectiveness,
+        'px_medical_benefit_only', ce.o_medical_benefit_only,
+        'px_lcv_wow', ce.o_lcv_wow,
+        'px_abortifacient', ce.o_abortifacient,
+        'px_weight_loss_inj', ce.o_weight_loss_inj,
+        'px_weight_loss_oral', ce.o_weight_loss_oral,
+        'px_fertility', ce.o_fertility,
+        'px_growth_hormone', ce.o_growth_hormone,
+        'px_desi', ce.o_desi,
+        'px_otc_drug_ind', ce.o_otc_drug_ind,
+        'fl_ids', ce.o_ids,
+        'fl_pap', ce.o_pap,
+        'fl_hans', ce.o_hans,
+        'fl_mcap', ce.o_mcap,
+        'is_closed_formulary', ce.is_closed_formulary,
+        'is_open_formulary', ce.is_open_formulary,
+        'formulary', ce.formulary
+        ),
     updated_at = CURRENT_TIMESTAMP,
     updated_by = 'lambda-enrichment'
 FROM complete_enrichment ce
