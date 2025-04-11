@@ -1,6 +1,6 @@
 {
   "/opportunities/[opportunityId]/files/[fileId]/claims/page": "app/opportunities/[opportunityId]/files/[fileId]/claims/page.js",
-  "/api/files/[fileId]/claims/route": "app/api/files/[fileId]/claims/route.js",
+  "/api/files/[fileId]/route": "app/api/files/[fileId]/route.js",
   "/api/files/[fileId]/exclusions/route": "app/api/files/[fileId]/exclusions/route.js",
-  "/api/files/[fileId]/route": "app/api/files/[fileId]/route.js"
+  "/api/files/[fileId]/claims/route": "app/api/files/[fileId]/claims/route.js"
 }
