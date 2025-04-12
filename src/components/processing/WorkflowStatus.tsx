@@ -359,6 +359,18 @@ export default function WorkflowStatusComponent({
   const getActiveStep = () => {
     if (!workflowStatus) return 0;
     
+    // Get the currently active stage
+    const currentStages = Object.entries(workflowStatus.details?.stages || {})
+      .filter(([_, info]) => info.status === 'in_progress')
+      .map(([stage]) => stage as WorkflowStage);
+    
+    // If there's a current stage in progress, use that index
+    if (currentStages.length > 0) {
+      const currentStageIndex = workflowSteps.indexOf(currentStages[0]);
+      if (currentStageIndex >= 0) return currentStageIndex;
+    }
+    
+    // Otherwise, use the current workflow stage
     const stageIndex = workflowSteps.indexOf(workflowStatus.stage);
     return stageIndex >= 0 ? stageIndex : 0;
   };
@@ -482,13 +494,15 @@ export default function WorkflowStatusComponent({
                   const status = getStepStatus(step);
                   
                   return (
-                    <Step key={step} status={status as any}>
+                    <Step key={step}>
                       <StepIndicator>
-                        <StepStatus 
-                          complete={<StepIcon size={16} />} 
-                          active={<StepIcon size={16} />}
-                          incomplete={<StepIcon size={16} />}
-                        />
+                        {status === 'complete' ? (
+                          <StepIcon size="1em" />
+                        ) : status === 'current' ? (
+                          <StepIcon size="1em" />
+                        ) : (
+                          <StepIcon size="1em" />
+                        )}
                       </StepIndicator>
                       <Box flexShrink={0}>
                         <StepTitle>{label}</StepTitle>
@@ -536,7 +550,7 @@ export default function WorkflowStatusComponent({
                 <AlertDescription>
                   {error || workflowStatus?.details?.error?.message || 'An unknown error occurred'}
                   <Button
-                    leftIcon={<RefreshCw size={16} />}
+                    leftIcon={<RefreshCw size="1em" />}
                     size="sm"
                     variant="outline"
                     colorScheme="red"
@@ -553,7 +567,7 @@ export default function WorkflowStatusComponent({
           {/* Refresh button */}
           <Flex justify="flex-end">
             <Button 
-              leftIcon={<RefreshCw size={16} />} 
+              leftIcon={<RefreshCw size="1em" />} 
               size="sm" 
               variant="outline" 
               onClick={handleRefresh}
