@@ -107,7 +107,7 @@ drug_classification_cte AS (
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'G%' 
-                AND ec.days_supply::numeric > 30 AND dm.tier = '1' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) > 30 AND dm.tier = '1' 
                 THEN 'nsMailGeneric90'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
@@ -118,19 +118,19 @@ drug_classification_cte AS (
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'G%' 
-                AND ec.days_supply::numeric <= 30 AND dm.tier = '1' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) <= 30 AND dm.tier = '1' 
                 THEN 'nsRetailGeneric30'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'G%' 
-                AND ec.days_supply::numeric > 30 AND dm.tier = '1' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) > 30 AND dm.tier = '1' 
                 THEN 'nsRetailGeneric90'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'B%' 
-                AND ec.days_supply::numeric > 30 AND dm.tier = '2' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) > 30 AND dm.tier = '2' 
                 THEN 'nsMailPreferredBrand90'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
@@ -142,19 +142,19 @@ drug_classification_cte AS (
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'B%' 
-                AND ec.days_supply::numeric <= 30 AND dm.tier = '2' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) <= 30 AND dm.tier = '2' 
                 THEN 'nsRetailPreferredBrand30'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'B%' 
-                AND ec.days_supply::numeric > 30 AND dm.tier = '2' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) > 30 AND dm.tier = '2' 
                 THEN 'nsRetailPreferredBrand90'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'B%' 
-                AND ec.days_supply::numeric > 30 AND dm.tier = '3' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) > 30 AND dm.tier = '3' 
                 THEN 'nsMailNonPreferredBrand90'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
@@ -166,13 +166,13 @@ drug_classification_cte AS (
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'B%' 
-                AND ec.days_supply::numeric <= 30 AND dm.tier = '3' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) <= 30 AND dm.tier = '3' 
                 THEN 'nsRetailNonPreferredBrand30'
                 
             WHEN ((ec.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR 
                  (ec.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y'))
                 AND dm.specialty_indicator <> 'Y' AND dm.brnd_gnrc LIKE 'B%' 
-                AND ec.days_supply::numeric > 30 AND dm.tier = '3' 
+                AND (CASE WHEN ec.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN ec.days_supply::numeric ELSE NULL END) > 30 AND dm.tier = '3' 
                 THEN 'nsRetailNonPreferredBrand90'
                 
             ELSE NULL
@@ -222,7 +222,7 @@ enrichment_data AS (
         awp.unit_price as mspan_unit_price,
         CASE 
             WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL 
-            THEN awp.unit_price * NULLIF(dc.quantity::numeric, 0) 
+            THEN awp.unit_price * (CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
             ELSE NULL 
         END as mspan_awp,
         dc.specialty_indicator,
@@ -230,9 +230,9 @@ enrichment_data AS (
         dc.tier,
         dc.is_closed_formulary,
         dc.is_open_formulary,
-        dc.days_supply::numeric as days_supply,
-        dc.awp_discount::numeric as awp_discount,
-        dc.member_cost::numeric as member_cost,
+        CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END as days_supply,
+        CASE WHEN dc.awp_discount::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.awp_discount::numeric ELSE NULL END as awp_discount,
+        CASE WHEN dc.member_cost::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.member_cost::numeric ELSE NULL END as member_cost,
         dc.opp_desi,
         dc.opp_lcv_wow,
         dc.opp_fertility,
@@ -263,9 +263,8 @@ enrichment_data AS (
         dc.orig_is_ids,
         dc.orig_is_hans,
         
-        
         -- Include the average rebate per day supply value
-        dc.avg_rebate_per_DS,
+        CASE WHEN dc.avg_rebate_per_DS::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.avg_rebate_per_DS::numeric ELSE NULL END as avg_rebate_per_DS,
         
         -- Calculate Gross Cost with updated AWP discount logic (Step 4)
         CASE 
@@ -273,24 +272,32 @@ enrichment_data AS (
                 CASE 
                     -- Specialty drugs use the discount from drugs_master
                     WHEN dc.specialty_indicator = 'Y' THEN 
-                        (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                        (1 - COALESCE(CASE WHEN dc.awp_discount::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.awp_discount::numeric ELSE NULL END, 0)) * 
+                        (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                     -- Non-specialty drugs use conditional discount based on brand/generic and days_supply
                     ELSE 
                         CASE 
                             -- Brand ≤ 30 days
-                            WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric <= 30 THEN 
-                                (1 - 0.20) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            WHEN dc.brnd_gnrc LIKE 'B%' AND 
+                                 CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 30 THEN 
+                                (1 - 0.20) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                             -- Generic ≤ 30 days
-                            WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric <= 30 THEN 
-                                (1 - 0.87) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            WHEN dc.brnd_gnrc LIKE 'G%' AND 
+                                 CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 30 THEN 
+                                (1 - 0.87) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                             -- Brand > 30 and ≤ 90 days
-                            WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                (1 - 0.215) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            WHEN dc.brnd_gnrc LIKE 'B%' AND 
+                                 CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END > 30 AND 
+                                 CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 90 THEN 
+                                (1 - 0.215) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                             -- Generic > 30 and ≤ 90 days
-                            WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                (1 - 0.89) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            WHEN dc.brnd_gnrc LIKE 'G%' AND 
+                                 CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END > 30 AND 
+                                 CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 90 THEN 
+                                (1 - 0.89) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                             -- Default case if no condition matches
-                            ELSE (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                            ELSE (1 - COALESCE(CASE WHEN dc.awp_discount::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.awp_discount::numeric ELSE NULL END, 0)) * 
+                                 (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                         END
                 END
             ELSE NULL
@@ -300,91 +307,68 @@ enrichment_data AS (
         CASE 
             WHEN dc.brnd_gnrc LIKE 'B%' THEN
                 -- Extract appropriate rebate based on category from drugs_master
-                COALESCE(dc.avg_rebate_per_DS, 0)
+                COALESCE(CASE WHEN dc.avg_rebate_per_DS::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.avg_rebate_per_DS::numeric ELSE NULL END, 0)
             ELSE 0 -- No rebates for generics
         END as normalized_avg_rebate_per_DS,
         
         -- Member copay logic with proper casting
 CASE
     WHEN dc.modeling_type = 'useClaimsFile' AND dc.member_cost IS NOT NULL THEN
-        dc.member_cost::numeric
+        CASE WHEN dc.member_cost::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.member_cost::numeric ELSE NULL END
 
     WHEN dc.modeling_type = 'memberCopays' AND dc.drug_classification IS NOT NULL THEN
         CASE
             WHEN dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification IS NULL 
               OR dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification = '' THEN NULL::numeric
-            ELSE (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::numeric
+            WHEN (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::text ~ '^-?\\d+(\\.\\d+)?$' 
+              THEN (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::numeric
+            ELSE NULL
         END
 
     WHEN dc.modeling_type = 'memberCoinsurance' AND dc.drug_classification IS NOT NULL THEN
         LEAST(
             COALESCE(
-                (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::numeric / 100.0 *
+                CASE 
+                  WHEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::text ~ '^-?\\d+(\\.\\d+)?$' 
+                  THEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::numeric / 100.0
+                  ELSE NULL
+                END *
                 -- Inline reprice_gross_cost logic here:
                 CASE 
                     WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
                         CASE 
                             WHEN dc.specialty_indicator = 'Y' THEN 
-                                (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                (1 - COALESCE(CASE WHEN dc.awp_discount::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.awp_discount::numeric ELSE NULL END, 0)) * 
+                                (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                             ELSE 
                                 CASE 
-                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric <= 30 THEN 
-                                        (1 - 0.20) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric <= 30 THEN 
-                                        (1 - 0.87) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                        (1 - 0.215) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                        (1 - 0.89) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    ELSE (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND 
+                                         CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 30 THEN 
+                                        (1 - 0.20) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND 
+                                         CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 30 THEN 
+                                        (1 - 0.87) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
+                                    WHEN dc.brnd_gnrc LIKE 'B%' AND 
+                                         CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END > 30 THEN 
+                                        (1 - 0.215) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
+                                    WHEN dc.brnd_gnrc LIKE 'G%' AND 
+                                         CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END > 30 THEN 
+                                        (1 - 0.89) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
+                                    ELSE (1 - COALESCE(CASE WHEN dc.awp_discount::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.awp_discount::numeric ELSE NULL END, 0)) * 
+                                         (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                                 END
                         END
                     ELSE NULL
                 END,
-                -- fallback to gross cost
-                CASE 
-                    WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
-                        CASE 
-                            WHEN dc.specialty_indicator = 'Y' THEN 
-                                (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                            ELSE 
-                                CASE 
-                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric <= 30 THEN 
-                                        (1 - 0.20) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric <= 30 THEN 
-                                        (1 - 0.87) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                        (1 - 0.215) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                        (1 - 0.89) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    ELSE (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                END
-                        END
-                    ELSE NULL
-                END
+                0
             ),
             COALESCE(
-                (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'maximum')::numeric,
                 CASE 
-                    WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
-                        CASE 
-                            WHEN dc.specialty_indicator = 'Y' THEN 
-                                (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                            ELSE 
-                                CASE 
-                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric <= 30 THEN 
-                                        (1 - 0.20) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric <= 30 THEN 
-                                        (1 - 0.87) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'B%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                        (1 - 0.215) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    WHEN dc.brnd_gnrc LIKE 'G%' AND dc.days_supply::numeric > 30 AND dc.days_supply::numeric <= 90 THEN 
-                                        (1 - 0.89) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                    ELSE (1 - COALESCE(dc.awp_discount::numeric, 0)) * (awp.unit_price * NULLIF(dc.quantity::numeric, 0))
-                                END
-                        END
-                    ELSE NULL
-                END
+                  WHEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'maximum')::text ~ '^-?\\d+(\\.\\d+)?$' 
+                  THEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'maximum')::numeric
+                  ELSE NULL
+                END,
+                999999 -- Large default value if maximum isn't specified
             )
         )
         
@@ -392,7 +376,8 @@ CASE
 END AS member_copay    FROM drug_classification_cte dc
     LEFT JOIN edpm.mspan_awp_info awp ON 
         awp.ndc11 = dc.ndc11 AND 
-        (dc.fill_date::date BETWEEN awp.awp_effective_from_date AND COALESCE(awp.awp_effective_thru_date, '9999-12-31'::date))
+        (CASE WHEN dc.fill_date ~ '^\\d{4}-\\d{2}-\\d{2}' THEN dc.fill_date::date ELSE NULL END 
+            BETWEEN awp.awp_effective_from_date AND COALESCE(awp.awp_effective_thru_date, '9999-12-31'::date))
     LEFT JOIN edpm.mspan_ndc_info ndc ON ndc.ndc11 = dc.ndc11
 ),
 enrichment_data_with_plan_cost AS (
@@ -402,18 +387,31 @@ enrichment_data_with_plan_cost AS (
         CASE
             -- Case 1: Use Claims File - Step 5.1
             WHEN ed.modeling_type = 'useClaimsFile' AND ed.member_cost IS NOT NULL THEN
-                GREATEST(ed.reprice_gross_cost - ed.member_cost::numeric, 0)
+                GREATEST(ed.reprice_gross_cost - ed.member_cost, 0)
                 
             -- Case 2: Member Copays - Step 5.2
             WHEN ed.modeling_type = 'memberCopays' AND ed.drug_classification IS NOT NULL THEN
-                GREATEST(ed.reprice_gross_cost - NULLIF((ed.general_info->'copayModeling'->'memberCopays'->>ed.drug_classification)::numeric, 0),0)
+                GREATEST(ed.reprice_gross_cost - 
+                    CASE 
+                      WHEN (ed.general_info->'copayModeling'->'memberCopays'->>ed.drug_classification)::text ~ '^-?\\d+(\\.\\d+)?$' 
+                      THEN (ed.general_info->'copayModeling'->'memberCopays'->>ed.drug_classification)::numeric
+                      ELSE 0
+                    END, 0)
                 
             -- Case 3: Member Coinsurance - Step 5.3
             WHEN ed.modeling_type = 'memberCoinsurance' AND ed.drug_classification IS NOT NULL THEN
                 GREATEST(ed.reprice_gross_cost - LEAST(
-                    NULLIF((ed.general_info->'copayModeling'->'memberCoinsurance'->ed.drug_classification->>'percentage')::numeric, 0) * ed.reprice_gross_cost / 100,
-                    NULLIF((ed.general_info->'copayModeling'->'memberCoinsurance'->ed.drug_classification->>'maximum')::numeric, 0)
-                ),0)
+                    CASE 
+                      WHEN (ed.general_info->'copayModeling'->'memberCoinsurance'->ed.drug_classification->>'percentage')::text ~ '^-?\\d+(\\.\\d+)?$' 
+                      THEN (ed.general_info->'copayModeling'->'memberCoinsurance'->ed.drug_classification->>'percentage')::numeric / 100.0 * ed.reprice_gross_cost
+                      ELSE 0
+                    END,
+                    CASE 
+                      WHEN (ed.general_info->'copayModeling'->'memberCoinsurance'->ed.drug_classification->>'maximum')::text ~ '^-?\\d+(\\.\\d+)?$' 
+                      THEN (ed.general_info->'copayModeling'->'memberCoinsurance'->ed.drug_classification->>'maximum')::numeric
+                      ELSE ed.reprice_gross_cost
+                    END
+                ), 0)
             
             -- Default
             ELSE ed.reprice_gross_cost
@@ -473,16 +471,16 @@ final_enrichment AS (
         brnd_gnrc,
         CASE 
             WHEN specialty_indicator = 'Y' THEN COALESCE(awp_discount, 0)
-            WHEN brnd_gnrc LIKE 'B%' AND days_supply::numeric <= 30 THEN 0.20
-            WHEN brnd_gnrc LIKE 'G%' AND days_supply::numeric <= 30 THEN 0.87
-            WHEN brnd_gnrc LIKE 'B%' AND days_supply::numeric > 30 THEN 0.215
-            WHEN brnd_gnrc LIKE 'G%' AND days_supply::numeric > 30 THEN 0.89
+            WHEN brnd_gnrc LIKE 'B%' AND days_supply <= 30 THEN 0.20
+            WHEN brnd_gnrc LIKE 'G%' AND days_supply <= 30 THEN 0.87
+            WHEN brnd_gnrc LIKE 'B%' AND days_supply > 30 THEN 0.215
+            WHEN brnd_gnrc LIKE 'G%' AND days_supply > 30 THEN 0.89
             ELSE COALESCE(awp_discount, 0)
         END as applied_awp_discount,
         
         -- Calculate Net Plan Cost
         CASE
-            WHEN normalized_avg_rebate_per_DS > 0 AND days_supply > 0 THEN
+            WHEN normalized_avg_rebate_per_DS > 0 AND days_supply IS NOT NULL AND days_supply > 0 THEN
                 reprice_plan_cost - (normalized_avg_rebate_per_DS * days_supply)
             ELSE
                 reprice_plan_cost

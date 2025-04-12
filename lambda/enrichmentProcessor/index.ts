@@ -227,10 +227,63 @@ async function checkFileEnrichmentCompletion(client: Client, fileId: string) {
           WHERE file_id = $1
         `, [fileId]);
         console.log(`File ${fileId} status updated to ENRICHED`);
+        
+        // Get opportunity_id for the file
+        const opportunityResult = await client.query(`
+          SELECT opportunity_id 
+          FROM claims_file_registry 
+          WHERE file_id = $1
+        `, [fileId]);
+        
+        if (opportunityResult.rows.length > 0) {
+          const opportunityId = opportunityResult.rows[0].opportunity_id;
+          
+          // Trigger the exclusions processor Lambda
+          await invokeExclusionsProcessor(fileId, opportunityId);
+        } else {
+          console.error(`Could not find opportunity_id for file ${fileId}`);
+        }
       }
     }
   } catch (error) {
     console.error(`Error checking file completion status: ${error}`);
+    // Don't throw here to avoid failing the batch processing
+  }
+}
+
+/**
+ * Invoke the exclusions processor Lambda
+ */
+async function invokeExclusionsProcessor(fileId: string, opportunityId: string) {
+  try {
+    // Use the AWS SDK v3 to invoke another Lambda function
+    const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+    const lambdaClient = new LambdaClient();
+    
+    // Get Lambda function name from environment variable or use default
+    const functionName = process.env.EXCLUSIONS_LAMBDA_NAME || 'exclusions-processor';
+    
+    // Define the payload for the exclusions processor
+    const payload = {
+      fileId,
+      opportunityId
+    };
+    
+    console.log(`Invoking exclusions processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    // Create the command
+    const command = new InvokeCommand({
+      FunctionName: functionName,
+      InvocationType: 'Event', // Asynchronous invocation
+      Payload: JSON.stringify(payload)
+    });
+    
+    // Invoke the Lambda function asynchronously
+    await lambdaClient.send(command);
+    
+    console.log(`Exclusions processor Lambda invoked successfully for file ${fileId}`);
+  } catch (error) {
+    console.error(`Error invoking exclusions processor Lambda: ${error}`);
     // Don't throw here to avoid failing the batch processing
   }
 }

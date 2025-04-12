@@ -41,7 +41,7 @@ import {
 } from '@/types/file';
 import { FileText, AlertCircle, ArrowRight, Play, Wand2 } from 'lucide-react';
 import { formatFileSize, formatDate } from '@/utils/format';
-import ProcessingStatus from '@/components/processing/ProcessingStatus';
+import WorkflowStatus from '@/components/processing/WorkflowStatus';
 import EnrichmentStatus from '@/components/processing/EnrichmentStatus';
 import ProcessFileButton from '@/components/processing/ProcessFileButton';
 
@@ -325,8 +325,9 @@ export function FileList({
                 {processingFileId === file.fileId && (
                   <Tr>
                     <Td colSpan={6} bg="gray.50" p={4}>
-                      <ProcessingStatus
+                      <WorkflowStatus
                         fileId={file.fileId}
+                        opportunityId={opportunityId}
                         onComplete={() => {
                           setProcessingFileId(null);
                           // After completion, refresh the file list

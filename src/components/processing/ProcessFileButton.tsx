@@ -64,9 +64,17 @@ export default function ProcessFileButton({
     setIsProcessing(true);
     
     try {
-      // Always use the Lambda processing endpoint
-      const response = await fetch(`/api/files/${fileId}/process`, {
-        method: 'POST'
+      // Use the new workflow orchestrator
+      const response = await fetch(`/api/files/workflow`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          fileId,
+          opportunityId: window.location.pathname.split('/')[2], // Extract opportunityId from URL
+          action: 'start'
+        })
       });
 
       if (!response.ok) {
@@ -77,7 +85,7 @@ export default function ProcessFileButton({
       // Show success message
       toast({
         title: 'Processing Started',
-        description: 'File processing has been initiated using Lambda',
+        description: 'File processing workflow has been initiated',
         status: 'success',
         duration: 3000,
         isClosable: true,

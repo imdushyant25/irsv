@@ -35,12 +35,20 @@ import {
 import { RefreshCw, Filter, Info } from 'lucide-react';
 import { formatCurrency } from '@/utils/format';
 
-// Type for exclusion category data
+// Type for exclusion category data - updated to match new data structure from API
 interface ExclusionCategory {
-  category: string;
-  plan_cost_sum: number;
-  claim_count: number;
-  unique_member_count: number;
+  // Original fields expected by the component
+  category?: string;
+  plan_cost_sum?: number;
+  claim_count?: number;
+  unique_member_count?: number;
+  
+  // New fields from the API
+  exclusion_name?: string;
+  exclusion_type?: string;
+  total_plan_cost?: number;
+  member_count?: number;
+  sort_order?: number;
 }
 
 // Type for API response - maintains backward compatibility
@@ -55,6 +63,7 @@ interface ExclusionsTabProps {
   fileId: string;
 }
 
+// Component renamed internally, but keeping function name for backwards compatibility
 export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [data, setData] = useState<ExclusionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,13 +76,13 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchExclusionsData();
   }, [fileId]);
 
-  // Calculate totals for a category group
+  // Calculate totals for a category group - supporting both old and new property names
   const calculateTotals = useCallback((categories: ExclusionCategory[]) => {
     return categories.reduce(
       (acc, category) => ({
-        totalPlanCost: acc.totalPlanCost + (category.plan_cost_sum || 0),
+        totalPlanCost: acc.totalPlanCost + (category.plan_cost_sum || category.total_plan_cost || 0),
         totalClaimCount: acc.totalClaimCount + (category.claim_count || 0),
-        totalMemberCount: acc.totalMemberCount + Math.max(0, category.unique_member_count || 0),
+        totalMemberCount: acc.totalMemberCount + Math.max(0, category.unique_member_count || category.member_count || 0),
       }),
       { totalPlanCost: 0, totalClaimCount: 0, totalMemberCount: 0 }
     );
@@ -91,33 +100,53 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     return calculateTotals(allCategories);
   }, [data, calculateTotals]);
 
-  // Fetch exclusions data from API
+  // Fetch exclusions data from the new savings API endpoint
   const fetchExclusionsData = async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Use GET for data load
-      const response = await fetch(`/api/files/${fileId}/exclusions`);
+      // Use the new savings endpoint with plans category (matching what exclusionsProcessor saves)
+      const response = await fetch(`/api/files/${fileId}/savings?category=plans`);
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch exclusions data: ${response.statusText}`);
+        throw new Error(`Failed to fetch savings data: ${response.statusText}`);
       }
       
       const result = await response.json();
       
-      if (!result.data) {
+      if (!result.data || !result.data.results) {
         throw new Error('Invalid response format from API');
       }
       
-      setData(result.data);
+      // Extract the nested results data in the correct format for the component
+      const resultsData = result.data.results.results;
+      
+      // Transform the data into the format expected by the component
+      const transformedData = {
+        exclusion_categories: resultsData.filter(item => 
+          item.exclusion_type === 'Plan' && 
+          item.exclusion_name !== 'TOTAL' && 
+          item.sort_order === 1
+        ),
+        optional_program_categories: [], // Empty since we removed Drug Flags
+        total_plan_cost: resultsData.find(item => 
+          item.exclusion_type === 'OVERALL TOTAL' || 
+          (item.exclusion_type === 'Plan' && item.exclusion_name === 'TOTAL')
+        )?.total_plan_cost || 0
+      };
+      
+      // Log the transformed data for debugging
+      console.log('Transformed data for component:', transformedData);
+      
+      setData(transformedData);
     } catch (error) {
-      console.error('Error fetching exclusions data:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load exclusions data');
+      console.error('Error fetching clinical savings data:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load clinical savings data');
       
       toast({
         title: 'Error',
-        description: 'Failed to load exclusions data',
+        description: 'Failed to load clinical savings data',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -127,10 +156,11 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     }
   };
 
-  // Render percentage of total plan cost
+  // Render percentage of total plan cost - handle either property name format
   const renderPercentage = (cost: number) => {
-    if (!data?.total_plan_cost || data.total_plan_cost === 0) return '0%';
-    return `${((cost / data.total_plan_cost) * 100).toFixed(2)}%`;
+    const totalCost = data?.total_plan_cost || 0;
+    if (!totalCost || totalCost === 0) return '0%';
+    return `${((cost / totalCost) * 100).toFixed(2)}%`;
   };
 
   if (loading && !data) {
@@ -193,12 +223,12 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
                 {categories.length > 0 ? (
                   <>
                     {categories.map((category) => (
-                      <Tr key={category.category}>
-                        <Td fontWeight="medium">{category.category}</Td>
-                        <Td isNumeric>{formatCurrency(category.plan_cost_sum)}</Td>
-                        <Td isNumeric>{renderPercentage(category.plan_cost_sum)}</Td>
+                      <Tr key={category.category || category.exclusion_name}>
+                        <Td fontWeight="medium">{category.category || category.exclusion_name}</Td>
+                        <Td isNumeric>{formatCurrency(category.plan_cost_sum || category.total_plan_cost || 0)}</Td>
+                        <Td isNumeric>{renderPercentage(category.plan_cost_sum || category.total_plan_cost || 0)}</Td>
                         <Td isNumeric>{category.claim_count}</Td>
-                        <Td isNumeric>{category.unique_member_count}</Td>
+                        <Td isNumeric>{category.unique_member_count || category.member_count || 0}</Td>
                       </Tr>
                     ))}
                     <Tr fontWeight="bold" bg="gray.50">
@@ -228,7 +258,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     <VStack spacing={6} align="stretch">
       {/* Summary header */}
       <HStack justify="space-between" px={2}>
-        <Heading size="md">Exclusions Analysis</Heading>
+        <Heading size="md">Clinical Savings Analysis</Heading>
         <Text fontWeight="bold">
           Total Plan Cost: {formatCurrency(data?.total_plan_cost || 0)}
         </Text>
@@ -236,36 +266,6 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       
       {/* Plan Exclusions Table */}
       {renderCategoryTable("Plan Exclusions", planExclusions, planExclusionTotals)}
-      
-      {/* Drug Flags Table */}
-      {renderCategoryTable("Drug Flags", drugFlags, drugFlagTotals)}
-      
-      {/* Grand Total Summary */}
-      <Card variant="outline">
-        <CardBody px={6} py={4} bg="blue.50">
-          <HStack justify="space-between">
-            <Heading size="md">Grand Total (All Exclusions)</Heading>
-            <HStack spacing={6}>
-              <VStack align="flex-end" spacing={0}>
-                <Text fontSize="sm" color="gray.600">Plan Cost</Text>
-                <Text fontWeight="bold">{formatCurrency(grandTotals.totalPlanCost)}</Text>
-              </VStack>
-              <VStack align="flex-end" spacing={0}>
-                <Text fontSize="sm" color="gray.600">% of Total Plan Cost</Text>
-                <Text fontWeight="bold">{renderPercentage(grandTotals.totalPlanCost)}</Text>
-              </VStack>
-              <VStack align="flex-end" spacing={0}>
-                <Text fontSize="sm" color="gray.600">Claims</Text>
-                <Text fontWeight="bold">{grandTotals.totalClaimCount}</Text>
-              </VStack>
-              <VStack align="flex-end" spacing={0}>
-                <Text fontSize="sm" color="gray.600">Members</Text>
-                <Text fontWeight="bold">{grandTotals.totalMemberCount}</Text>
-              </VStack>
-            </HStack>
-          </HStack>
-        </CardBody>
-      </Card>
     </VStack>
   );
 }

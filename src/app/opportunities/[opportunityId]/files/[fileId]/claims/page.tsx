@@ -399,7 +399,7 @@ export default function ClaimsPage() {
       >
         <TabList>
           <Tab>Claims Data</Tab>
-          <Tab>Exclusions</Tab>
+          <Tab>Clinical Savings</Tab>
         </TabList>
 
         <TabPanels>

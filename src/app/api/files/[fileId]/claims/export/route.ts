@@ -46,7 +46,6 @@ export async function POST(
     const queryText = `
       SELECT 
         row_number as "Row Number",
-        mapped_fields as "Mapped Fields",
         ${isEnriched ? 'lookup_fields as "Lookup Fields",' : ''}
         validation_status as "Validation Status",
         processing_status as "Processing Status",
@@ -58,42 +57,26 @@ export async function POST(
 
     const result = await query<ClaimRecord>(queryText, [fileId]);
 
-    // Define column categories for organizing the export
-    let mappedColumns: string[] = [];
-    let lookupColumns: string[] = [];
+    // Define the specific lookup fields to include in the export
+    const specificLookupFields = [
+      'ndc11', 'quantity', 'days_supply', 'fill_date', 'member_copay', 
+      'specialty_indicator', 'brnd_gnrc', 'drug_label_name', 'mspan_unit_price', 
+      'avg_rebate_per_DS', 'reprice_plan_cost', 'reprice_gross_cost', 
+      'applied_awp_discount', 'reprice_net_plan_cost'
+    ];
 
-    // Process the data for Excel - excluding administrative columns
+    // Process the data for Excel - only including the specific lookup fields
     const flattenedData: FlattenedClaimRecord[] = result.rows.map(row => {
-      const baseRecord: FlattenedClaimRecord = {};
+      const baseRecord: FlattenedClaimRecord = {
+        'Row Number': row['Row Number']
+      };
 
-      // Add mapped fields
-      for (const [key, value] of Object.entries(row['Mapped Fields'])) {
-        baseRecord[key] = value !== null ? String(value) : '';
-        if (!mappedColumns.includes(key)) {
-          mappedColumns.push(key);
-        }
-      }
-
-      // Add lookup fields with prefix if the file is enriched
+      // Add only the specific lookup fields if they exist
       if (isEnriched && row['Lookup Fields']) {
-        for (const [key, value] of Object.entries(row['Lookup Fields'])) {
-          // Handle nested objects in lookup fields
-          if (typeof value === 'object' && value !== null) {
-            // Flatten nested objects with dot notation
-            for (const [nestedKey, nestedValue] of Object.entries(value)) {
-              const lookupKey = `Lookup_${key}_${nestedKey}`;
-              baseRecord[lookupKey] = nestedValue !== null ? String(nestedValue) : '';
-              if (!lookupColumns.includes(lookupKey)) {
-                lookupColumns.push(lookupKey);
-              }
-            }
-          } else {
-            // Handle non-nested values
-            const lookupKey = `Lookup_${key}`;
-            baseRecord[lookupKey] = value !== null ? String(value) : '';
-            if (!lookupColumns.includes(lookupKey)) {
-              lookupColumns.push(lookupKey);
-            }
+        for (const fieldName of specificLookupFields) {
+          const value = row['Lookup Fields'][fieldName];
+          if (value !== undefined) {
+            baseRecord[fieldName] = value !== null ? String(value) : '';
           }
         }
       }
@@ -101,39 +84,18 @@ export async function POST(
       return baseRecord;
     });
 
-    // Organize columns by category
-    const allColumns = [...mappedColumns, ...lookupColumns];
-    
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    
-    // Create the data array for Excel
-    // The strategy below changes to add data directly using array-of-arrays
-    // which gives us more control over formatting
-    
-    // Create a header array with all column names
-    const headerRow = [...allColumns];
+    // Create column headers from the specific lookup fields
+    const headerRow = ['Row Number', ...specificLookupFields.filter(field => 
+      // Only include fields that actually exist in at least one record
+      flattenedData.some(record => record[field] !== undefined)
+    )];
     
     // Create a 2D array for the data
     const aoa: string[][] = [headerRow];
     
-    // Add category labels - but only at the beginning of each section
-    const categoryRow: string[] = Array(allColumns.length).fill("");
-    
-    if (mappedColumns.length > 0) {
-      categoryRow[0] = "MAPPED FIELDS";
-    }
-    
-    if (lookupColumns.length > 0) {
-      categoryRow[mappedColumns.length] = "LOOKUP FIELDS";
-    }
-    
-    // Add the category row
-    aoa.push(categoryRow);
-    
     // Convert flattenedData to array-of-arrays format
     flattenedData.forEach(row => {
-      const rowArray = allColumns.map(col => {
+      const rowArray = headerRow.map(col => {
         // Convert all values to strings to satisfy TypeScript
         const value = row[col];
         return value !== undefined && value !== null ? String(value) : "";
@@ -144,35 +106,25 @@ export async function POST(
     // Create the worksheet from the array of arrays
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     
-    // Create a guide sheet to explain the data organization
+    // Create a guide sheet to explain the data
     const guideRows = [
       ["CLAIMS DATA EXPORT GUIDE"],
       [""],
-      ["The data in this export is organized into categories:"],
+      ["This export includes the following fields:"],
       [""],
-      ["1. MAPPED FIELDS"],
-      ["   Standard field names from the mapping configuration"],
-      ["   Examples: " + mappedColumns.slice(0, 3).join(", ") + (mappedColumns.length > 3 ? ", ..." : "")],
+      ["Row Number - The original row number from the claims file"],
       [""]
     ];
 
-    if (isEnriched && lookupColumns.length > 0) {
-      guideRows.push(
-        ["2. LOOKUP FIELDS"],
-        ["   Enriched data fields from lookup services (prefixed with 'Lookup_')"],
-        ["   Examples: " + lookupColumns.slice(0, 3).join(", ") + (lookupColumns.length > 3 ? ", ..." : "")],
-        [""]
-      );
-    }
-    
-    guideRows.push(
-      [""],
-      ["Note: The first row of the Claims Data sheet shows the category for each column."]
-    );
+    // Add descriptions for each lookup field
+    specificLookupFields.forEach(field => {
+      guideRows.push([`${field} - Lookup data for ${field.replace(/_/g, ' ')}`]);
+    });
     
     const guideSheet = XLSX.utils.aoa_to_sheet(guideRows);
     
     // Add sheets to workbook
+    const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Claims Data');
     XLSX.utils.book_append_sheet(wb, guideSheet, 'Guide');
     
@@ -186,7 +138,7 @@ export async function POST(
     // Set response headers
     const headers = new Headers();
     headers.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    headers.set('Content-Disposition', `attachment; filename=claims_${fileId}.xlsx`);
+    headers.set('Content-Disposition', `attachment; filename=claims_${fileId}_exclusions.xlsx`);
 
     return new NextResponse(buffer, {
       status: 200,
