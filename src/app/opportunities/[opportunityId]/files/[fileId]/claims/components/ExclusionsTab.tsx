@@ -124,13 +124,13 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       
       // Transform the data into the format expected by the component
       const transformedData = {
-        exclusion_categories: resultsData.filter(item => 
+        exclusion_categories: resultsData.filter((item: ExclusionCategory) => 
           item.exclusion_type === 'Plan' && 
           item.exclusion_name !== 'TOTAL' && 
           item.sort_order === 1
         ),
         optional_program_categories: [], // Empty since we removed Drug Flags
-        total_plan_cost: resultsData.find(item => 
+        total_plan_cost: resultsData.find((item: ExclusionCategory) => 
           item.exclusion_type === 'OVERALL TOTAL' || 
           (item.exclusion_type === 'Plan' && item.exclusion_name === 'TOTAL')
         )?.total_plan_cost || 0
