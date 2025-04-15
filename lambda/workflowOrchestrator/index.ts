@@ -10,6 +10,9 @@ enum WorkflowStage {
   PROCESSING = 'PROCESSING',  // File processing
   ENRICHING = 'ENRICHING',    // Data enrichment
   EXCLUSIONS = 'EXCLUSIONS',  // Exclusions analysis
+  FORMULARY_EXCLUSIONS = 'FORMULARY_EXCLUSIONS', // Formulary exclusions analysis
+  WEIGHT_LOSS_SAVINGS = 'WEIGHT_LOSS_SAVINGS',  // Weight loss medications savings analysis
+  DIABETES_SAVINGS = 'DIABETES_SAVINGS',  // Diabetes medications savings analysis
   SAVINGS = 'SAVINGS',        // Future step: Savings analysis
   PRICING = 'PRICING',        // Future step: Pricing analysis
   COMPLETED = 'COMPLETED',
@@ -90,6 +93,33 @@ export const handler = async (event: any) => {
         case WorkflowStage.EXCLUSIONS:
           // Check if exclusions analysis is complete
           if (await isExclusionsComplete(client, fileId)) {
+            // Move to formulary exclusions step
+            await updateWorkflowStage(client, workflowId, WorkflowStage.FORMULARY_EXCLUSIONS);
+            await invokeFormularyExclusionsProcessor(client, workflowId, fileId, opportunityId);
+          }
+          break;
+          
+        case WorkflowStage.FORMULARY_EXCLUSIONS:
+          // Check if formulary exclusions analysis is complete
+          if (await isFormularyExclusionsComplete(client, fileId)) {
+            // Move to weight loss savings step
+            await updateWorkflowStage(client, workflowId, WorkflowStage.WEIGHT_LOSS_SAVINGS);
+            await invokeWeightLossSavingsProcessor(client, workflowId, fileId, opportunityId);
+          }
+          break;
+          
+        case WorkflowStage.WEIGHT_LOSS_SAVINGS:
+          // Check if weight loss savings analysis is complete
+          if (await isWeightLossSavingsComplete(client, fileId)) {
+            // Move to diabetes savings step
+            await updateWorkflowStage(client, workflowId, WorkflowStage.DIABETES_SAVINGS);
+            await invokeDiabetesProcessor(client, workflowId, fileId, opportunityId);
+          }
+          break;
+          
+        case WorkflowStage.DIABETES_SAVINGS:
+          // Check if diabetes savings analysis is complete
+          if (await isDiabetesSavingsComplete(client, fileId)) {
             // Check if there are more stages to run
             if (shouldRunSavingsAnalysis(currentStatus)) {
               await updateWorkflowStage(client, workflowId, WorkflowStage.SAVINGS);
@@ -201,7 +231,9 @@ async function initializeWorkflow(client: Client, workflowId: string, fileId: st
         [WorkflowStage.INITIALIZING]: { status: 'completed', timestamp: new Date().toISOString() },
         [WorkflowStage.PROCESSING]: { status: 'pending' },
         [WorkflowStage.ENRICHING]: { status: 'pending' },
-        [WorkflowStage.EXCLUSIONS]: { status: 'pending' }
+        [WorkflowStage.EXCLUSIONS]: { status: 'pending' },
+        [WorkflowStage.FORMULARY_EXCLUSIONS]: { status: 'pending' },
+        [WorkflowStage.WEIGHT_LOSS_SAVINGS]: { status: 'pending' }
         // Additional stages can be added here
       }
     })
@@ -381,6 +413,16 @@ async function calculateProgress(client: Client, fileId: string, stage: Workflow
       // For now, exclusions is either 0% or 100%
       // We could enhance this later with more granular progress
       progress = await isExclusionsComplete(client, fileId) ? 100 : 50;
+      break;
+      
+    case WorkflowStage.FORMULARY_EXCLUSIONS:
+      // For now, formulary exclusions is either 0% or 100%
+      progress = await isFormularyExclusionsComplete(client, fileId) ? 100 : 50;
+      break;
+      
+    case WorkflowStage.WEIGHT_LOSS_SAVINGS:
+      // Weight loss savings analysis progress
+      progress = await isWeightLossSavingsComplete(client, fileId) ? 100 : 50;
       break;
       
     case WorkflowStage.SAVINGS:
@@ -733,6 +775,210 @@ async function isPricingComplete(client: Client, fileId: string) {
 }
 
 /**
+ * Invoke the formulary exclusions processor
+ */
+async function invokeFormularyExclusionsProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if formulary exclusions have already been processed (look for 'formulary' category)
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'formulary'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Formulary exclusions analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke formulary exclusions processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    const command = new InvokeCommand({
+      FunctionName: process.env.FORMULARY_EXCLUSIONS_PROCESSOR_LAMBDA_NAME || 'formulary-exclusions-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked formulary exclusions processor for file ${fileId}`);
+    
+    // Increase throttling time to prevent multiple invocations
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    console.error(`Error invoking formulary exclusions processor: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if formulary exclusions analysis is complete
+ */
+async function isFormularyExclusionsComplete(client: Client, fileId: string) {
+  try {
+    console.log(`Checking if formulary exclusions analysis is complete for file ${fileId}`);
+    
+    // Check for 'formulary' category
+    const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'formulary'
+    `;
+    
+    const result = await client.query(query, [fileId]);
+    const count = parseInt(result.rows[0].count);
+    
+    console.log(`Found ${count} formulary records for file ${fileId}`);
+    
+    // Simple check - if we have records with category 'formulary', formulary exclusions is complete
+    return count > 0;
+  } catch (error) {
+    console.error(`Error checking formulary exclusions completion: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * Invoke the weight loss savings processor
+ */
+async function invokeWeightLossSavingsProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if weight loss savings have already been processed
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'P1_GLP1_Wght_Loss'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Weight loss savings analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke weight loss savings processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    const command = new InvokeCommand({
+      FunctionName: process.env.WEIGHT_LOSS_SAVINGS_PROCESSOR_LAMBDA_NAME || 'weight-loss-savings-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked weight loss savings processor for file ${fileId}`);
+    
+    // Increase throttling time to prevent multiple invocations
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    console.error(`Error invoking weight loss savings processor: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if weight loss savings analysis is complete
+ */
+async function isWeightLossSavingsComplete(client: Client, fileId: string) {
+  try {
+    console.log(`Checking if weight loss savings analysis is complete for file ${fileId}`);
+    
+    // Check for 'P1_GLP1_Wght_Loss' category
+    const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'P1_GLP1_Wght_Loss'
+    `;
+    
+    const result = await client.query(query, [fileId]);
+    const count = parseInt(result.rows[0].count);
+    
+    console.log(`Found ${count} weight loss savings records for file ${fileId}`);
+    
+    // Simple check - if we have records with category 'P1_GLP1_Wght_Loss', weight loss savings is complete
+    return count > 0;
+  } catch (error) {
+    console.error(`Error checking weight loss savings completion: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * Invoke the diabetes processor
+ */
+async function invokeDiabetesProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if diabetes savings have already been processed
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'P1_GLP1_Diabetes'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Diabetes savings analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke diabetes processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    const command = new InvokeCommand({
+      FunctionName: process.env.DIABETES_PROCESSOR_LAMBDA_NAME || 'diabetes-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked diabetes processor for file ${fileId}`);
+    
+    // Increase throttling time to prevent multiple invocations
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    console.error(`Error invoking diabetes processor: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if diabetes savings analysis is complete
+ */
+async function isDiabetesSavingsComplete(client: Client, fileId: string) {
+  try {
+    console.log(`Checking if diabetes savings analysis is complete for file ${fileId}`);
+    
+    // Check for 'P1_GLP1_Diabetes' category
+    const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'P1_GLP1_Diabetes'
+    `;
+    
+    const result = await client.query(query, [fileId]);
+    const count = parseInt(result.rows[0].count);
+    
+    console.log(`Found ${count} diabetes savings records for file ${fileId}`);
+    
+    // Simple check - if we have records with category 'P1_GLP1_Diabetes', diabetes savings is complete
+    return count > 0;
+  } catch (error) {
+    console.error(`Error checking diabetes savings completion: ${error}`);
+    return false;
+  }
+}
+
+/**
  * Update workflow error status
  */
 async function updateWorkflowError(client: Client, workflowId: string, error: any) {
@@ -770,6 +1016,9 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
   if (stages[WorkflowStage.PROCESSING]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PROCESSING;
   if (stages[WorkflowStage.ENRICHING]?.status === 'completed') lastSuccessfulStage = WorkflowStage.ENRICHING;
   if (stages[WorkflowStage.EXCLUSIONS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.EXCLUSIONS;
+  if (stages[WorkflowStage.FORMULARY_EXCLUSIONS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.FORMULARY_EXCLUSIONS;
+  if (stages[WorkflowStage.WEIGHT_LOSS_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.WEIGHT_LOSS_SAVINGS;
+  if (stages[WorkflowStage.DIABETES_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.DIABETES_SAVINGS;
   if (stages[WorkflowStage.SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.SAVINGS;
   if (stages[WorkflowStage.PRICING]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PRICING;
   
@@ -792,6 +1041,21 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
       break;
       
     case WorkflowStage.EXCLUSIONS:
+      nextStage = WorkflowStage.FORMULARY_EXCLUSIONS;
+      await invokeFormularyExclusionsProcessor(client, workflowId, fileId, opportunityId);
+      break;
+      
+    case WorkflowStage.FORMULARY_EXCLUSIONS:
+      nextStage = WorkflowStage.WEIGHT_LOSS_SAVINGS;
+      await invokeWeightLossSavingsProcessor(client, workflowId, fileId, opportunityId);
+      break;
+      
+    case WorkflowStage.WEIGHT_LOSS_SAVINGS:
+      nextStage = WorkflowStage.DIABETES_SAVINGS;
+      await invokeDiabetesProcessor(client, workflowId, fileId, opportunityId);
+      break;
+      
+    case WorkflowStage.DIABETES_SAVINGS:
       if (shouldRunSavingsAnalysis(currentStatus)) {
         nextStage = WorkflowStage.SAVINGS;
         await invokeSavingsProcessor(client, workflowId, fileId, opportunityId);

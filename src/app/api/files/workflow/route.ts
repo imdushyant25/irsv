@@ -147,10 +147,19 @@ export async function POST(request: NextRequest) {
         const exclusionsResult = await query(`
           SELECT COUNT(*) as count
           FROM savings_results
-          WHERE file_id = $1 AND category = 'exclusions'
+          WHERE file_id = $1 AND category = 'plans'
         `, [fileId]);
         
         progress = parseInt(exclusionsResult.rows[0].count) > 0 ? 100 : 50;
+      } else if (workflow.stage === 'FORMULARY_EXCLUSIONS') {
+        // Check formulary exclusions progress
+        const formularyResult = await query(`
+          SELECT COUNT(*) as count
+          FROM savings_results
+          WHERE file_id = $1 AND category = 'formulary'
+        `, [fileId]);
+        
+        progress = parseInt(formularyResult.rows[0].count) > 0 ? 100 : 50;
       } else if (workflow.stage === 'COMPLETED') {
         progress = 100;
       }

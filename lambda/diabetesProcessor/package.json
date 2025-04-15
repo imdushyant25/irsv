@@ -1,0 +1,22 @@
+{
+  "name": "diabetes-processor",
+  "version": "1.0.0",
+  "description": "Lambda function to calculate diabetes medication savings",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "pg": "^8.10.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.11",
+    "@types/pg": "^8.6.6",
+    "@types/uuid": "^9.0.1",
+    "typescript": "^5.0.4"
+  }
+}

@@ -40,15 +40,26 @@ import {
 } from 'lucide-react';
 
 // Workflow stages enum - must match the enum in the Lambda
+// Backend workflow stages
 enum WorkflowStage {
   INITIALIZING = 'INITIALIZING',
   PROCESSING = 'PROCESSING',  
   ENRICHING = 'ENRICHING',    
   EXCLUSIONS = 'EXCLUSIONS',  
+  FORMULARY_EXCLUSIONS = 'FORMULARY_EXCLUSIONS',
+  WEIGHT_LOSS_SAVINGS = 'WEIGHT_LOSS_SAVINGS',
   SAVINGS = 'SAVINGS',        
   PRICING = 'PRICING',        
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR'
+}
+
+// UI workflow steps - simplified view for users
+enum UIWorkflowStep {
+  PROCESSING = 'PROCESSING',
+  REPRICE = 'REPRICE',
+  SAVINGS_ANALYSIS = 'SAVINGS_ANALYSIS',
+  COMPLETED = 'COMPLETED'
 }
 
 // Type for workflow status
@@ -267,45 +278,36 @@ export default function WorkflowStatusComponent({
     pollStatus();
   };
 
-  // Get stage-specific icons and colors
-  const getStageDetails = (stage: WorkflowStage) => {
-    switch (stage) {
-      case WorkflowStage.PROCESSING:
+  // Get UI step-specific icons and colors
+  const getStepDetails = (uiStep: UIWorkflowStep | WorkflowStage) => {
+    // If it's a backend stage, map it to UI step first
+    if (Object.values(WorkflowStage).includes(uiStep as WorkflowStage)) {
+      uiStep = mapStageToUIStep(uiStep as WorkflowStage);
+    }
+    
+    switch (uiStep) {
+      case UIWorkflowStep.PROCESSING:
         return { 
           icon: File, 
           color: 'blue', 
           label: 'Processing File',
-          description: 'Parsing file contents'
+          description: 'Parsing and loading data'
         };
-      case WorkflowStage.ENRICHING:
+      case UIWorkflowStep.REPRICE:
         return { 
           icon: Database, 
           color: 'purple', 
-          label: 'Enriching Data',
-          description: 'Adding contextual information'
+          label: 'Repricing',
+          description: 'Calculating alternative pricing'
         };
-      case WorkflowStage.EXCLUSIONS:
-        return { 
-          icon: BarChart4, 
-          color: 'teal', 
-          label: 'Analyzing Exclusions',
-          description: 'Identifying exclusion opportunities'
-        };
-      case WorkflowStage.SAVINGS:
+      case UIWorkflowStep.SAVINGS_ANALYSIS:
         return { 
           icon: DollarSign, 
           color: 'green', 
-          label: 'Calculating Savings',
-          description: 'Determining potential savings'
+          label: 'Savings Analysis',
+          description: 'Calculating potential savings'
         };
-      case WorkflowStage.PRICING:
-        return { 
-          icon: Tag, 
-          color: 'orange', 
-          label: 'Pricing Analysis',
-          description: 'Analyzing pricing data'
-        };
-      case WorkflowStage.COMPLETED:
+      case UIWorkflowStep.COMPLETED:
         return { 
           icon: CheckCircle2, 
           color: 'green', 
@@ -329,64 +331,133 @@ export default function WorkflowStatusComponent({
     }
   };
 
-  // Get status for a step in the workflow
-  const getStepStatus = (step: WorkflowStage) => {
+  // Get status for a UI step in the workflow
+  const getStepStatus = (uiStep: UIWorkflowStep) => {
     if (!workflowStatus) return 'incomplete';
     
-    const stageInfo = workflowStatus.details?.stages?.[step];
+    // Determine which backend stages correspond to this UI step
+    let correspondingStages: WorkflowStage[] = [];
     
-    if (!stageInfo) return 'incomplete';
+    switch (uiStep) {
+      case UIWorkflowStep.PROCESSING:
+        correspondingStages = [WorkflowStage.PROCESSING];
+        break;
+      case UIWorkflowStep.REPRICE:
+        correspondingStages = [WorkflowStage.ENRICHING];
+        break;
+      case UIWorkflowStep.SAVINGS_ANALYSIS:
+        correspondingStages = [
+          WorkflowStage.EXCLUSIONS,
+          WorkflowStage.FORMULARY_EXCLUSIONS,
+          WorkflowStage.WEIGHT_LOSS_SAVINGS,
+          WorkflowStage.SAVINGS,
+          WorkflowStage.PRICING
+        ];
+        break;
+      case UIWorkflowStep.COMPLETED:
+        correspondingStages = [WorkflowStage.COMPLETED];
+        break;
+    }
     
-    if (stageInfo.status === 'completed') return 'complete';
-    if (stageInfo.status === 'in_progress') return 'current';
-    if (stageInfo.status === 'error') return 'error';
+    // If any corresponding stage is in progress, this UI step is current
+    for (const stage of correspondingStages) {
+      const stageInfo = workflowStatus.details?.stages?.[stage];
+      if (stageInfo?.status === 'in_progress') {
+        return 'current';
+      }
+    }
+    
+    // If any previous UI step has incomplete stages, this UI step is incomplete
+    const currentUIStep = mapStageToUIStep(workflowStatus.stage);
+    const currentUIStepIndex = workflowSteps.indexOf(currentUIStep);
+    const thisUIStepIndex = workflowSteps.indexOf(uiStep);
+    
+    if (thisUIStepIndex > currentUIStepIndex) {
+      return 'incomplete';
+    }
+    
+    // If all corresponding stages are complete, this UI step is complete
+    // For the COMPLETED step, use the actual workflow stage
+    if (uiStep === UIWorkflowStep.COMPLETED) {
+      return workflowStatus.stage === WorkflowStage.COMPLETED ? 'complete' : 'incomplete';
+    }
+    
+    // For other steps, check if all are complete or we've moved past it
+    const allComplete = correspondingStages.every(stage => {
+      const stageInfo = workflowStatus.details?.stages?.[stage];
+      return stageInfo?.status === 'completed';
+    });
+    
+    if (allComplete || thisUIStepIndex < currentUIStepIndex) {
+      return 'complete';
+    }
     
     return 'incomplete';
   };
 
-  // Define the steps to display in the stepper
+  // Define the simplified UI steps to display in the stepper
   const workflowSteps = [
-    WorkflowStage.PROCESSING,
-    WorkflowStage.ENRICHING,
-    WorkflowStage.EXCLUSIONS,
-    // Only include additional stages if they're enabled or in use
-    ...(workflowStatus?.details?.stages?.[WorkflowStage.SAVINGS] ? [WorkflowStage.SAVINGS] : []),
-    ...(workflowStatus?.details?.stages?.[WorkflowStage.PRICING] ? [WorkflowStage.PRICING] : []),
-    WorkflowStage.COMPLETED
+    UIWorkflowStep.PROCESSING,
+    UIWorkflowStep.REPRICE,
+    UIWorkflowStep.SAVINGS_ANALYSIS,
+    UIWorkflowStep.COMPLETED
   ];
+
+  // Map backend stage to UI step
+  const mapStageToUIStep = (stage: WorkflowStage): UIWorkflowStep => {
+    switch (stage) {
+      case WorkflowStage.PROCESSING:
+        return UIWorkflowStep.PROCESSING;
+      case WorkflowStage.ENRICHING:
+        return UIWorkflowStep.REPRICE;
+      case WorkflowStage.EXCLUSIONS:
+      case WorkflowStage.FORMULARY_EXCLUSIONS:
+      case WorkflowStage.WEIGHT_LOSS_SAVINGS:
+      case WorkflowStage.SAVINGS:
+      case WorkflowStage.PRICING:
+        return UIWorkflowStep.SAVINGS_ANALYSIS;
+      case WorkflowStage.COMPLETED:
+        return UIWorkflowStep.COMPLETED;
+      default:
+        return UIWorkflowStep.PROCESSING;
+    }
+  };
 
   // Get the current active step index
   const getActiveStep = () => {
     if (!workflowStatus) return 0;
     
-    // Get the currently active stage
-    const currentStages = Object.entries(workflowStatus.details?.stages || {})
-      .filter(([_, info]) => info.status === 'in_progress')
-      .map(([stage]) => stage as WorkflowStage);
+    // Map the current backend stage to UI step
+    const currentUIStep = mapStageToUIStep(workflowStatus.stage);
     
-    // If there's a current stage in progress, use that index
-    if (currentStages.length > 0) {
-      const currentStageIndex = workflowSteps.indexOf(currentStages[0]);
-      if (currentStageIndex >= 0) return currentStageIndex;
-    }
-    
-    // Otherwise, use the current workflow stage
-    const stageIndex = workflowSteps.indexOf(workflowStatus.stage);
-    return stageIndex >= 0 ? stageIndex : 0;
+    // Return the index of the current UI step
+    const stepIndex = workflowSteps.indexOf(currentUIStep);
+    return stepIndex >= 0 ? stepIndex : 0;
   };
 
-  // Calculate overall progress percentage across stages
+  // Calculate overall progress percentage across UI steps
   const calculateOverallProgress = () => {
     if (!workflowStatus) return 0;
     
-    // Define weights for each stage (adjust as needed)
-    const weights: Record<WorkflowStage, number> = {
+    // Define weights for UI steps (adjust as needed)
+    const uiStepWeights: Record<UIWorkflowStep, number> = {
+      [UIWorkflowStep.PROCESSING]: 30,
+      [UIWorkflowStep.REPRICE]: 30,
+      [UIWorkflowStep.SAVINGS_ANALYSIS]: 40,
+      [UIWorkflowStep.COMPLETED]: 0
+    };
+    
+    // Map backend stages to UI step weights
+    const backendStageWeights: Record<WorkflowStage, number> = {
       [WorkflowStage.INITIALIZING]: 0,
-      [WorkflowStage.PROCESSING]: 25,
-      [WorkflowStage.ENRICHING]: 25,
-      [WorkflowStage.EXCLUSIONS]: 20,
-      [WorkflowStage.SAVINGS]: 15,
-      [WorkflowStage.PRICING]: 15,
+      [WorkflowStage.PROCESSING]: uiStepWeights[UIWorkflowStep.PROCESSING],
+      [WorkflowStage.ENRICHING]: uiStepWeights[UIWorkflowStep.REPRICE],
+      // Divide the SAVINGS_ANALYSIS weight among its component stages
+      [WorkflowStage.EXCLUSIONS]: uiStepWeights[UIWorkflowStep.SAVINGS_ANALYSIS] * 0.2,
+      [WorkflowStage.FORMULARY_EXCLUSIONS]: uiStepWeights[UIWorkflowStep.SAVINGS_ANALYSIS] * 0.2,
+      [WorkflowStage.WEIGHT_LOSS_SAVINGS]: uiStepWeights[UIWorkflowStep.SAVINGS_ANALYSIS] * 0.2,
+      [WorkflowStage.SAVINGS]: uiStepWeights[UIWorkflowStep.SAVINGS_ANALYSIS] * 0.2,
+      [WorkflowStage.PRICING]: uiStepWeights[UIWorkflowStep.SAVINGS_ANALYSIS] * 0.2,
       [WorkflowStage.COMPLETED]: 0,
       [WorkflowStage.ERROR]: 0
     };
@@ -394,17 +465,26 @@ export default function WorkflowStatusComponent({
     // Start with progress from current stage
     let progress = 0;
     const currentStage = workflowStatus.stage;
+    const currentUIStep = mapStageToUIStep(currentStage);
     
-    // Add 100% for completed stages
+    // Add 100% for completed UI steps
+    const completedUISteps = new Set<UIWorkflowStep>();
+    
+    // Add completed backend stages' contributions
     Object.entries(workflowStatus.details.stages).forEach(([stage, info]) => {
       if (info.status === 'completed' && stage !== WorkflowStage.COMPLETED) {
-        progress += weights[stage as WorkflowStage];
+        // Add this stage's weight to the progress
+        progress += backendStageWeights[stage as WorkflowStage];
+        
+        // Mark this stage's UI step as completed
+        const uiStep = mapStageToUIStep(stage as WorkflowStage);
+        completedUISteps.add(uiStep);
       }
     });
     
     // Add partial progress for current stage
     if (currentStage !== WorkflowStage.COMPLETED && currentStage !== WorkflowStage.ERROR) {
-      progress += (workflowStatus.progress / 100) * weights[currentStage];
+      progress += (workflowStatus.progress / 100) * backendStageWeights[currentStage];
     }
     
     // If completed, return 100%
@@ -412,7 +492,7 @@ export default function WorkflowStatusComponent({
       return 100;
     }
     
-    return progress;
+    return Math.min(progress, 99); // Cap at 99% until fully complete
   };
 
   // Render the component
@@ -445,13 +525,13 @@ export default function WorkflowStatusComponent({
             <Text fontWeight="bold">Processing Status</Text>
             {workflowStatus && (
               <Badge 
-                colorScheme={getStageDetails(workflowStatus.stage).color}
+                colorScheme={getStepDetails(workflowStatus.stage).color}
                 fontSize="sm"
                 px={2}
                 py={1}
                 borderRadius="md"
               >
-                {getStageDetails(workflowStatus.stage).label}
+                {getStepDetails(workflowStatus.stage).label}
               </Badge>
             )}
           </HStack>
@@ -462,7 +542,7 @@ export default function WorkflowStatusComponent({
               <Progress 
                 value={calculateOverallProgress()} 
                 size="sm" 
-                colorScheme={getStageDetails(workflowStatus.stage).color}
+                colorScheme={getStepDetails(workflowStatus.stage).color}
                 mb={3}
                 borderRadius="md"
                 hasStripe={workflowStatus.stage !== WorkflowStage.COMPLETED}
@@ -472,7 +552,7 @@ export default function WorkflowStatusComponent({
                 <Text fontSize="sm" color="gray.600">
                   {workflowStatus.stage === WorkflowStage.COMPLETED 
                     ? 'Processing complete' 
-                    : `${getStageDetails(workflowStatus.stage).label}: ${Math.round(workflowStatus.progress)}%`}
+                    : `${getStepDetails(workflowStatus.stage).label}: ${Math.round(workflowStatus.progress)}%`}
                 </Text>
                 <Text fontSize="sm" color="gray.600">
                   {calculateOverallProgress().toFixed(0)}% Complete
@@ -486,11 +566,11 @@ export default function WorkflowStatusComponent({
             <Box my={6}>
               <Stepper 
                 index={getActiveStep()} 
-                colorScheme={getStageDetails(workflowStatus.stage).color}
+                colorScheme={getStepDetails(workflowStatus.stage).color}
                 size="sm"
               >
                 {workflowSteps.map((step, index) => {
-                  const { icon: StepIcon, label, description } = getStageDetails(step);
+                  const { icon: StepIcon, label, description } = getStepDetails(step);
                   const status = getStepStatus(step);
                   
                   return (

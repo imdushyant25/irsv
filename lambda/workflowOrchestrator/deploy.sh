@@ -21,9 +21,6 @@ cd dist
 zip -r ../function.zip .
 cd ..
 
-# Make the script executable
-chmod +x deploy.sh
-
 # Step 5: Deploy to AWS Lambda (if AWS CLI is configured)
 if [ -n "$1" ]; then
   # If a function name is provided as an argument, update the function
@@ -32,8 +29,15 @@ if [ -n "$1" ]; then
     --function-name $1 \
     --zip-file fileb://function.zip
 
-  echo "Lambda function updated successfully!"
+  # Update environment variables to include weight loss processor
+  echo "Updating environment variables for function: $1..."
+  aws lambda update-function-configuration \
+    --function-name $1 \
+    --environment "Variables={DB_HOST=$DB_HOST,DB_PORT=$DB_PORT,DB_NAME=$DB_NAME,DB_USER=$DB_USER,DB_PASSWORD=$DB_PASSWORD,DB_SCHEMA=edpm,EXCLUSIONS_PROCESSOR_LAMBDA_NAME=exclusions-processor,FORMULARY_EXCLUSIONS_PROCESSOR_LAMBDA_NAME=formulary-exclusions-processor,WEIGHT_LOSS_SAVINGS_PROCESSOR_LAMBDA_NAME=weight-loss-savings-processor,DIABETES_PROCESSOR_LAMBDA_NAME=diabetes-processor}"
+
+  echo "Lambda function and environment variables updated successfully!"
 else
   echo "Deployment package created: function.zip"
-  echo "To deploy, run: aws lambda update-function-code --function-name YOUR_FUNCTION_NAME --zip-file fileb://function.zip"
+  echo "To deploy, run: ./deploy.sh YOUR_FUNCTION_NAME"
+  echo "Example: ./deploy.sh illuminateRx-workflowOrchestrator"
 fi

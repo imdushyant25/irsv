@@ -65,15 +65,27 @@ interface ExclusionsTabProps {
 
 // Component renamed internally, but keeping function name for backwards compatibility
 export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
-  const [data, setData] = useState<ExclusionsResponse | null>(null);
+  const [planData, setPlanData] = useState<ExclusionsResponse | null>(null);
+  const [formularyData, setFormularyData] = useState<any>(null);
+  const [weightLossData, setWeightLossData] = useState<any>(null);
+  const [diabetesData, setDiabetesData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [formularyLoading, setFormularyLoading] = useState(true);
+  const [weightLossLoading, setWeightLossLoading] = useState(true);
+  const [diabetesLoading, setDiabetesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [formularyError, setFormularyError] = useState<string | null>(null);
+  const [weightLossError, setWeightLossError] = useState<string | null>(null);
+  const [diabetesError, setDiabetesError] = useState<string | null>(null);
   
   const toast = useToast();
 
   // Fetch initial data
   useEffect(() => {
-    fetchExclusionsData();
+    fetchPlanExclusionsData();
+    fetchFormularyExclusionsData();
+    fetchWeightLossSavingsData();
+    fetchDiabetesSavingsData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -90,27 +102,27 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
 
   // Calculate grand totals across all categories
   const calculateGrandTotals = useCallback(() => {
-    if (!data) return { totalPlanCost: 0, totalClaimCount: 0, totalMemberCount: 0 };
+    if (!planData) return { totalPlanCost: 0, totalClaimCount: 0, totalMemberCount: 0 };
     
-    const planExclusionCategories = data.exclusion_categories || [];
-    const drugFlagCategories = data.optional_program_categories || [];
+    const planExclusionCategories = planData.exclusion_categories || [];
+    const drugFlagCategories = planData.optional_program_categories || [];
     
     const allCategories = [...planExclusionCategories, ...drugFlagCategories];
     
     return calculateTotals(allCategories);
-  }, [data, calculateTotals]);
+  }, [planData, calculateTotals]);
 
-  // Fetch exclusions data from the new savings API endpoint
-  const fetchExclusionsData = async () => {
+  // Fetch plan exclusions data from the savings API endpoint
+  const fetchPlanExclusionsData = async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Use the new savings endpoint with plans category (matching what exclusionsProcessor saves)
+      // Use the savings endpoint with plans category (matching what exclusionsProcessor saves)
       const response = await fetch(`/api/files/${fileId}/savings?category=plans`);
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch savings data: ${response.statusText}`);
+        throw new Error(`Failed to fetch plan exclusions data: ${response.statusText}`);
       }
       
       const result = await response.json();
@@ -136,17 +148,16 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
         )?.total_plan_cost || 0
       };
       
-      // Log the transformed data for debugging
-      console.log('Transformed data for component:', transformedData);
+      console.log('Plan exclusions data:', transformedData);
       
-      setData(transformedData);
+      setPlanData(transformedData);
     } catch (error) {
-      console.error('Error fetching clinical savings data:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load clinical savings data');
+      console.error('Error fetching plan exclusions data:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load plan exclusions data');
       
       toast({
         title: 'Error',
-        description: 'Failed to load clinical savings data',
+        description: 'Failed to load plan exclusions data',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -155,15 +166,129 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       setLoading(false);
     }
   };
+  
+  // Fetch formulary exclusions data from the savings API endpoint
+  const fetchFormularyExclusionsData = async () => {
+    setFormularyLoading(true);
+    setFormularyError(null);
+    
+    try {
+      // Use the savings endpoint with formulary category
+      const response = await fetch(`/api/files/${fileId}/savings?category=formulary`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch formulary exclusions data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('Formulary exclusions data:', result.data.results);
+      
+      setFormularyData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching formulary exclusions data:', error);
+      setFormularyError(error instanceof Error ? error.message : 'Failed to load formulary exclusions data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load formulary exclusions data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setFormularyLoading(false);
+    }
+  };
+  
+  // Fetch weight loss savings data from the savings API endpoint
+  const fetchWeightLossSavingsData = async () => {
+    setWeightLossLoading(true);
+    setWeightLossError(null);
+    
+    try {
+      // Use the savings endpoint with the P1_GLP1_Wght_Loss category
+      const response = await fetch(`/api/files/${fileId}/savings?category=P1_GLP1_Wght_Loss`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch weight loss savings data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('Weight loss savings data:', result.data.results);
+      
+      setWeightLossData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching weight loss savings data:', error);
+      setWeightLossError(error instanceof Error ? error.message : 'Failed to load weight loss savings data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load weight loss savings data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setWeightLossLoading(false);
+    }
+  };
+  
+  // Fetch diabetes savings data from the savings API endpoint
+  const fetchDiabetesSavingsData = async () => {
+    setDiabetesLoading(true);
+    setDiabetesError(null);
+    
+    try {
+      // Use the savings endpoint with the P1_GLP1_Diabetes category
+      const response = await fetch(`/api/files/${fileId}/savings?category=P1_GLP1_Diabetes`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch diabetes savings data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('Diabetes savings data:', result.data.results);
+      
+      setDiabetesData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching diabetes savings data:', error);
+      setDiabetesError(error instanceof Error ? error.message : 'Failed to load diabetes savings data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load diabetes savings data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setDiabetesLoading(false);
+    }
+  };
 
   // Render percentage of total plan cost - handle either property name format
   const renderPercentage = (cost: number) => {
-    const totalCost = data?.total_plan_cost || 0;
+    const totalCost = planData?.total_plan_cost || 0;
     if (!totalCost || totalCost === 0) return '0%';
     return `${((cost / totalCost) * 100).toFixed(2)}%`;
   };
 
-  if (loading && !data) {
+  if (loading && !planData) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" height="300px">
         <VStack spacing={4}>
@@ -177,7 +302,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   }
 
-  if (error && !data) {
+  if (error && !planData) {
     return (
       <Alert status="error" variant="subtle" flexDirection="column" alignItems="center" justifyContent="center" textAlign="center" height="200px">
         <AlertIcon boxSize="40px" mr={0} />
@@ -188,13 +313,107 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   }
 
   // Get category data
-  const planExclusions = data?.exclusion_categories || [];
-  const drugFlags = data?.optional_program_categories || [];
+  const planExclusions = planData?.exclusion_categories || [];
+  const drugFlags = planData?.optional_program_categories || [];
   
   // Calculate totals
   const planExclusionTotals = calculateTotals(planExclusions);
   const drugFlagTotals = calculateTotals(drugFlags);
   const grandTotals = calculateGrandTotals();
+  
+  // Create a formulary exclusions table
+  const renderFormularyTable = () => {
+    if (formularyLoading && !formularyData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Formulary Exclusions</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (formularyError && !formularyData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Formulary Exclusions</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load formulary exclusions data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!formularyData || !formularyData.results || formularyData.results.length === 0) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Formulary Exclusions</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No formulary exclusions data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Formulary Exclusions</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th>Category</Th>
+                  <Th isNumeric>Incumbent Plan Cost</Th>
+                  <Th isNumeric>Illuminate Plan Cost</Th>
+                  <Th isNumeric>Savings</Th>
+                  <Th isNumeric>Claim Count</Th>
+                  <Th isNumeric>Member Count</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {formularyData.results.filter((item: any) => item.category !== 'Total').map((category: any) => (
+                  <Tr key={category.category}>
+                    <Td fontWeight="medium">{category.category}</Td>
+                    <Td isNumeric>{category.incumbent_plan_cost}</Td>
+                    <Td isNumeric>{category.illuminate_plan_cost}</Td>
+                    <Td isNumeric color="green.600" fontWeight="medium">{category.savings}</Td>
+                    <Td isNumeric>{category.claim_count || 0}</Td>
+                    <Td isNumeric>{category.member_count || 0}</Td>
+                  </Tr>
+                ))}
+                {/* Total row */}
+                {formularyData.results.filter((item: any) => item.category === 'Total').map((total: any) => (
+                  <Tr key="total" fontWeight="bold" bg="gray.50">
+                    <Td>Total</Td>
+                    <Td isNumeric>{total.incumbent_plan_cost}</Td>
+                    <Td isNumeric>{total.illuminate_plan_cost}</Td>
+                    <Td isNumeric color="green.600">{total.savings}</Td>
+                    <Td isNumeric>{total.claim_count || 0}</Td>
+                    <Td isNumeric>{total.member_count || 0}</Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
 
   // Create table for a category type
   const renderCategoryTable = (
@@ -254,18 +473,217 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   };
 
+  // Create weight loss savings table
+  const renderWeightLossTable = () => {
+    if (weightLossLoading && !weightLossData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">GLP-1 Weight Loss</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (weightLossError && !weightLossData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">GLP-1 Weight Loss</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load weight loss savings data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!weightLossData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">GLP-1 Weight Loss</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No weight loss savings data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the results data, handling different possible structures
+    const resultData = weightLossData.results || weightLossData;
+    
+    // Check if there's savings data
+    const hasSavings = resultData && resultData['Part 1 Potential Savings'] && 
+                      parseFloat(resultData['Part 1 Potential Savings'].toString().replace(/[^0-9.-]+/g, '')) > 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">GLP-1 Weight Loss</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            {hasSavings ? (
+              <Table variant="simple" size="sm">
+                <Thead>
+                  <Tr bg="gray.50">
+                    <Th isNumeric>Brand Cost</Th>
+                    <Th isNumeric>Generic Cost</Th>
+                    <Th isNumeric>Claim Count</Th>
+                    <Th isNumeric>Member Count</Th>
+                    <Th isNumeric>Potential Savings</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  <Tr>
+                    <Td isNumeric>{resultData['Brand Cost'] ? formatCurrency(resultData['Brand Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Generic Cost'] ? formatCurrency(resultData['Generic Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Claim Count'] || 0}</Td>
+                    <Td isNumeric>{resultData['Member Count'] || 0}</Td>
+                    <Td isNumeric color="green.600" fontWeight="bold">
+                      {resultData['Part 1 Potential Savings'] ? formatCurrency(resultData['Part 1 Potential Savings']) : '$0.00'}
+                    </Td>
+                  </Tr>
+                </Tbody>
+              </Table>
+            ) : (
+              <Alert status="info" variant="subtle">
+                <AlertIcon />
+                <Text>No significant weight loss medication savings detected in this data.</Text>
+              </Alert>
+            )}
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
+  // Create diabetes savings table
+  const renderDiabetesTable = () => {
+    if (diabetesLoading && !diabetesData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">GLP-1 Diabetes</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (diabetesError && !diabetesData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">GLP-1 Diabetes</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load diabetes savings data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!diabetesData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">GLP-1 Diabetes</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No diabetes savings data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the results data, handling different possible structures
+    const resultData = diabetesData.results || diabetesData;
+    
+    // Check if there's savings data
+    const hasSavings = resultData && resultData['Part 1 Potential Savings'] && 
+                      parseFloat(resultData['Part 1 Potential Savings'].toString().replace(/[^0-9.-]+/g, '')) > 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">GLP-1 Diabetes</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            {hasSavings ? (
+              <Table variant="simple" size="sm">
+                <Thead>
+                  <Tr bg="gray.50">
+                    <Th isNumeric>Brand Cost</Th>
+                    <Th isNumeric>Generic Cost</Th>
+                    <Th isNumeric>Claim Count</Th>
+                    <Th isNumeric>Member Count</Th>
+                    <Th isNumeric>Potential Savings</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  <Tr>
+                    <Td isNumeric>{resultData['Brand Cost'] ? formatCurrency(resultData['Brand Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Generic Cost'] ? formatCurrency(resultData['Generic Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Claim Count'] || 0}</Td>
+                    <Td isNumeric>{resultData['Member Count'] || 0}</Td>
+                    <Td isNumeric color="green.600" fontWeight="bold">
+                      {resultData['Part 1 Potential Savings'] ? formatCurrency(resultData['Part 1 Potential Savings']) : '$0.00'}
+                    </Td>
+                  </Tr>
+                </Tbody>
+              </Table>
+            ) : (
+              <Alert status="info" variant="subtle">
+                <AlertIcon />
+                <Text>No significant diabetes medication savings detected in this data.</Text>
+              </Alert>
+            )}
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+
   return (
     <VStack spacing={6} align="stretch">
       {/* Summary header */}
       <HStack justify="space-between" px={2}>
         <Heading size="md">Clinical Savings Analysis</Heading>
         <Text fontWeight="bold">
-          Total Plan Cost: {formatCurrency(data?.total_plan_cost || 0)}
+          Total Plan Cost: {formatCurrency(planData?.total_plan_cost || 0)}
         </Text>
       </HStack>
       
       {/* Plan Exclusions Table */}
       {renderCategoryTable("Plan Exclusions", planExclusions, planExclusionTotals)}
+      
+      {/* Formulary Exclusions Table */}
+      {renderFormularyTable()}
+      
+      {/* Weight Loss Savings Table */}
+      {renderWeightLossTable()}
+      
+      {/* Diabetes Savings Table */}
+      {renderDiabetesTable()}
     </VStack>
   );
 }
