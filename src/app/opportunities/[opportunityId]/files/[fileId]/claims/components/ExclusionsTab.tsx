@@ -65,18 +65,30 @@ interface ExclusionsTabProps {
 
 // Component renamed internally, but keeping function name for backwards compatibility
 export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
+  // State for active tab
+  const [activeTab, setActiveTab] = useState('clinical');
+  
   const [planData, setPlanData] = useState<ExclusionsResponse | null>(null);
   const [formularyData, setFormularyData] = useState<any>(null);
   const [weightLossData, setWeightLossData] = useState<any>(null);
   const [diabetesData, setDiabetesData] = useState<any>(null);
+  const [hdcrData, setHdcrData] = useState<any>(null);
+  const [priorAuthData, setPriorAuthData] = useState<any>(null);
+  const [qtyLimitData, setQtyLimitData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
   const [diabetesLoading, setDiabetesLoading] = useState(true);
+  const [hdcrLoading, setHdcrLoading] = useState(true);
+  const [priorAuthLoading, setPriorAuthLoading] = useState(true);
+  const [qtyLimitLoading, setQtyLimitLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
   const [diabetesError, setDiabetesError] = useState<string | null>(null);
+  const [hdcrError, setHdcrError] = useState<string | null>(null);
+  const [priorAuthError, setPriorAuthError] = useState<string | null>(null);
+  const [qtyLimitError, setQtyLimitError] = useState<string | null>(null);
   
   const toast = useToast();
 
@@ -86,6 +98,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchFormularyExclusionsData();
     fetchWeightLossSavingsData();
     fetchDiabetesSavingsData();
+    fetchHdcrSavingsData();
+    fetchPriorAuthSavingsData();
+    fetchQtyLimitSavingsData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -278,6 +293,120 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       });
     } finally {
       setDiabetesLoading(false);
+    }
+  };
+  
+  // Fetch HDCR savings data from the savings API endpoint
+  const fetchHdcrSavingsData = async () => {
+    setHdcrLoading(true);
+    setHdcrError(null);
+    
+    try {
+      // Use the savings endpoint with the hdcr category
+      const response = await fetch(`/api/files/${fileId}/savings?category=hdcr`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch HDCR savings data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('HDCR savings data:', result.data.results);
+      
+      setHdcrData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching HDCR savings data:', error);
+      setHdcrError(error instanceof Error ? error.message : 'Failed to load HDCR savings data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load high dollar claim review data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setHdcrLoading(false);
+    }
+  };
+  
+  // Fetch Prior Auth savings data from the savings API endpoint
+  const fetchPriorAuthSavingsData = async () => {
+    setPriorAuthLoading(true);
+    setPriorAuthError(null);
+    
+    try {
+      // Use the savings endpoint with the priorauth category
+      const response = await fetch(`/api/files/${fileId}/savings?category=priorauth`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch Prior Auth savings data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('Prior Auth savings data:', result.data.results);
+      
+      setPriorAuthData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching Prior Auth savings data:', error);
+      setPriorAuthError(error instanceof Error ? error.message : 'Failed to load Prior Auth savings data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load prior authorization data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setPriorAuthLoading(false);
+    }
+  };
+  
+  // Fetch Quantity Limits savings data from the savings API endpoint
+  const fetchQtyLimitSavingsData = async () => {
+    setQtyLimitLoading(true);
+    setQtyLimitError(null);
+    
+    try {
+      // Use the savings endpoint with the qtylim category
+      const response = await fetch(`/api/files/${fileId}/savings?category=qtylim`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch Quantity Limits savings data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('Quantity Limits savings data:', result.data.results);
+      
+      setQtyLimitData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching Quantity Limits savings data:', error);
+      setQtyLimitError(error instanceof Error ? error.message : 'Failed to load Quantity Limits savings data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load quantity limits data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setQtyLimitLoading(false);
     }
   };
 
@@ -663,27 +792,381 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   };
 
+  // Create HDCR savings table
+  const renderHdcrTable = () => {
+    if (hdcrLoading && !hdcrData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">High Dollar Claim Review</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (hdcrError && !hdcrData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">High Dollar Claim Review</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load high dollar claim review data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!hdcrData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">High Dollar Claim Review</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No high dollar claim review data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the results data, handling different possible structures
+    const resultData = hdcrData.results || hdcrData;
+    
+    // Check if there's savings data
+    const hasSavings = resultData && resultData['Part 1 Potential Savings'] && 
+                      parseFloat(resultData['Part 1 Potential Savings'].toString().replace(/[^0-9.-]+/g, '')) > 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">High Dollar Claim Review</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            {hasSavings ? (
+              <Table variant="simple" size="sm">
+                <Thead>
+                  <Tr bg="gray.50">
+                    <Th isNumeric>Brand Cost</Th>
+                    <Th isNumeric>Generic Cost</Th>
+                    <Th isNumeric>Claim Count</Th>
+                    <Th isNumeric>Member Count</Th>
+                    <Th isNumeric>Potential Savings</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  <Tr>
+                    <Td isNumeric>{resultData['Brand Cost'] ? formatCurrency(resultData['Brand Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Generic Cost'] ? formatCurrency(resultData['Generic Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Claim Count'] || 0}</Td>
+                    <Td isNumeric>{resultData['Member Count'] || 0}</Td>
+                    <Td isNumeric color="green.600" fontWeight="bold">
+                      {resultData['Part 1 Potential Savings'] ? formatCurrency(resultData['Part 1 Potential Savings']) : '$0.00'}
+                    </Td>
+                  </Tr>
+                </Tbody>
+              </Table>
+            ) : (
+              <Alert status="info" variant="subtle">
+                <AlertIcon />
+                <Text>No significant high dollar claims detected in this data.</Text>
+              </Alert>
+            )}
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
+  // Create Prior Auth savings table
+  const renderPriorAuthTable = () => {
+    if (priorAuthLoading && !priorAuthData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Prior Authorization</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (priorAuthError && !priorAuthData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Prior Authorization</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load prior authorization data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!priorAuthData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Prior Authorization</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No prior authorization data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the results data, handling different possible structures
+    const resultData = priorAuthData.results || priorAuthData;
+    
+    // Check if there's savings data
+    const hasSavings = resultData && resultData['Part 1 Potential Savings'] && 
+                      parseFloat(resultData['Part 1 Potential Savings'].toString().replace(/[^0-9.-]+/g, '')) > 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Prior Authorization</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            {hasSavings ? (
+              <Table variant="simple" size="sm">
+                <Thead>
+                  <Tr bg="gray.50">
+                    <Th isNumeric>Brand Cost</Th>
+                    <Th isNumeric>Generic Cost</Th>
+                    <Th isNumeric>Claim Count</Th>
+                    <Th isNumeric>Member Count</Th>
+                    <Th isNumeric>Potential Savings</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  <Tr>
+                    <Td isNumeric>{resultData['Brand Cost'] ? formatCurrency(resultData['Brand Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Generic Cost'] ? formatCurrency(resultData['Generic Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Claim Count'] || 0}</Td>
+                    <Td isNumeric>{resultData['Member Count'] || 0}</Td>
+                    <Td isNumeric color="green.600" fontWeight="bold">
+                      {resultData['Part 1 Potential Savings'] ? formatCurrency(resultData['Part 1 Potential Savings']) : '$0.00'}
+                    </Td>
+                  </Tr>
+                </Tbody>
+              </Table>
+            ) : (
+              <Alert status="info" variant="subtle">
+                <AlertIcon />
+                <Text>No significant prior authorization savings detected in this data.</Text>
+              </Alert>
+            )}
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
+  // Create Quantity Limits savings table
+  const renderQtyLimitTable = () => {
+    if (qtyLimitLoading && !qtyLimitData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Quantity Limits</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (qtyLimitError && !qtyLimitData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Quantity Limits</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load quantity limits data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!qtyLimitData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Quantity Limits</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No quantity limits data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the results data, handling different possible structures
+    const resultData = qtyLimitData.results || qtyLimitData;
+    
+    // Check if there's savings data
+    const hasSavings = resultData && resultData['Part 1 Potential Savings'] && 
+                      parseFloat(resultData['Part 1 Potential Savings'].toString().replace(/[^0-9.-]+/g, '')) > 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Quantity Limits</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            {hasSavings ? (
+              <Table variant="simple" size="sm">
+                <Thead>
+                  <Tr bg="gray.50">
+                    <Th isNumeric>Brand Cost</Th>
+                    <Th isNumeric>Generic Cost</Th>
+                    <Th isNumeric>Claim Count</Th>
+                    <Th isNumeric>Member Count</Th>
+                    <Th isNumeric>Potential Savings</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  <Tr>
+                    <Td isNumeric>{resultData['Brand Cost'] ? formatCurrency(resultData['Brand Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Generic Cost'] ? formatCurrency(resultData['Generic Cost']) : '$0.00'}</Td>
+                    <Td isNumeric>{resultData['Claim Count'] || 0}</Td>
+                    <Td isNumeric>{resultData['Member Count'] || 0}</Td>
+                    <Td isNumeric color="green.600" fontWeight="bold">
+                      {resultData['Part 1 Potential Savings'] ? formatCurrency(resultData['Part 1 Potential Savings']) : '$0.00'}
+                    </Td>
+                  </Tr>
+                </Tbody>
+              </Table>
+            ) : (
+              <Alert status="info" variant="subtle">
+                <AlertIcon />
+                <Text>No significant quantity limits savings detected in this data.</Text>
+              </Alert>
+            )}
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+
   return (
     <VStack spacing={6} align="stretch">
       {/* Summary header */}
       <HStack justify="space-between" px={2}>
-        <Heading size="md">Clinical Savings Analysis</Heading>
+        <Heading size="md">Savings Analysis</Heading>
         <Text fontWeight="bold">
           Total Plan Cost: {formatCurrency(planData?.total_plan_cost || 0)}
         </Text>
       </HStack>
       
-      {/* Plan Exclusions Table */}
-      {renderCategoryTable("Plan Exclusions", planExclusions, planExclusionTotals)}
+      {/* Tabs */}
+      <HStack spacing={4} borderBottom="1px" borderColor="gray.200">
+        <Button 
+          variant={activeTab === 'clinical' ? 'solid' : 'ghost'} 
+          colorScheme={activeTab === 'clinical' ? 'blue' : 'gray'}
+          borderBottom={activeTab === 'clinical' ? '2px solid' : 'none'}
+          borderRadius="0"
+          onClick={() => setActiveTab('clinical')}
+        >
+          Clinical Savings
+        </Button>
+        <Button 
+          variant={activeTab === 'contract' ? 'solid' : 'ghost'} 
+          colorScheme={activeTab === 'contract' ? 'blue' : 'gray'}
+          borderBottom={activeTab === 'contract' ? '2px solid' : 'none'}
+          borderRadius="0"
+          onClick={() => setActiveTab('contract')}
+        >
+          Contract Savings
+        </Button>
+        <Button 
+          variant={activeTab === 'additional' ? 'solid' : 'ghost'} 
+          colorScheme={activeTab === 'additional' ? 'blue' : 'gray'}
+          borderBottom={activeTab === 'additional' ? '2px solid' : 'none'}
+          borderRadius="0"
+          onClick={() => setActiveTab('additional')}
+        >
+          Additional Savings
+        </Button>
+      </HStack>
       
-      {/* Formulary Exclusions Table */}
-      {renderFormularyTable()}
+      {/* Clinical Savings Tab Content */}
+      {activeTab === 'clinical' && (
+        <>
+          {/* Plan Exclusions Table */}
+          {renderCategoryTable("Plan Exclusions", planExclusions, planExclusionTotals)}
+          
+          {/* Formulary Exclusions Table */}
+          {renderFormularyTable()}
+          
+          {/* Weight Loss Savings Table */}
+          {renderWeightLossTable()}
+          
+          {/* Diabetes Savings Table */}
+          {renderDiabetesTable()}
+          
+          {/* High Dollar Claim Review Table */}
+          {renderHdcrTable()}
+          
+          {/* Prior Authorization Table */}
+          {renderPriorAuthTable()}
+          
+          {/* Quantity Limits Table */}
+          {renderQtyLimitTable()}
+        </>
+      )}
       
-      {/* Weight Loss Savings Table */}
-      {renderWeightLossTable()}
+      {/* Contract Savings Tab Content */}
+      {activeTab === 'contract' && (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Contract Savings Analysis</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">Contract savings analysis will be available in a future update.</Text>
+          </CardBody>
+        </Card>
+      )}
       
-      {/* Diabetes Savings Table */}
-      {renderDiabetesTable()}
+      {/* Additional Savings Tab Content */}
+      {activeTab === 'additional' && (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Additional Savings Analysis</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">Additional savings analysis will be available in a future update.</Text>
+          </CardBody>
+        </Card>
+      )}
     </VStack>
   );
 }

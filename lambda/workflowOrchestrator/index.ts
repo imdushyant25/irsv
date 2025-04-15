@@ -13,6 +13,9 @@ enum WorkflowStage {
   FORMULARY_EXCLUSIONS = 'FORMULARY_EXCLUSIONS', // Formulary exclusions analysis
   WEIGHT_LOSS_SAVINGS = 'WEIGHT_LOSS_SAVINGS',  // Weight loss medications savings analysis
   DIABETES_SAVINGS = 'DIABETES_SAVINGS',  // Diabetes medications savings analysis
+  HDCR_SAVINGS = 'HDCR_SAVINGS',  // High dollar claim review savings analysis
+  PRIOR_AUTH_SAVINGS = 'PRIOR_AUTH_SAVINGS',  // Prior authorization savings analysis
+  QTY_LIMIT_SAVINGS = 'QTY_LIMIT_SAVINGS',  // Quantity limits savings analysis
   SAVINGS = 'SAVINGS',        // Future step: Savings analysis
   PRICING = 'PRICING',        // Future step: Pricing analysis
   COMPLETED = 'COMPLETED',
@@ -120,6 +123,33 @@ export const handler = async (event: any) => {
         case WorkflowStage.DIABETES_SAVINGS:
           // Check if diabetes savings analysis is complete
           if (await isDiabetesSavingsComplete(client, fileId)) {
+            // Move to HDCR savings step
+            await updateWorkflowStage(client, workflowId, WorkflowStage.HDCR_SAVINGS);
+            await invokeHdcrProcessor(client, workflowId, fileId, opportunityId);
+          }
+          break;
+          
+        case WorkflowStage.HDCR_SAVINGS:
+          // Check if HDCR savings analysis is complete
+          if (await isHdcrSavingsComplete(client, fileId)) {
+            // Move to Prior Auth savings step
+            await updateWorkflowStage(client, workflowId, WorkflowStage.PRIOR_AUTH_SAVINGS);
+            await invokePriorAuthProcessor(client, workflowId, fileId, opportunityId);
+          }
+          break;
+          
+        case WorkflowStage.PRIOR_AUTH_SAVINGS:
+          // Check if Prior Auth savings analysis is complete
+          if (await isPriorAuthSavingsComplete(client, fileId)) {
+            // Move to Quantity Limits savings step
+            await updateWorkflowStage(client, workflowId, WorkflowStage.QTY_LIMIT_SAVINGS);
+            await invokeQtyLimitProcessor(client, workflowId, fileId, opportunityId);
+          }
+          break;
+          
+        case WorkflowStage.QTY_LIMIT_SAVINGS:
+          // Check if Quantity Limits savings analysis is complete
+          if (await isQtyLimitSavingsComplete(client, fileId)) {
             // Check if there are more stages to run
             if (shouldRunSavingsAnalysis(currentStatus)) {
               await updateWorkflowStage(client, workflowId, WorkflowStage.SAVINGS);
@@ -233,7 +263,11 @@ async function initializeWorkflow(client: Client, workflowId: string, fileId: st
         [WorkflowStage.ENRICHING]: { status: 'pending' },
         [WorkflowStage.EXCLUSIONS]: { status: 'pending' },
         [WorkflowStage.FORMULARY_EXCLUSIONS]: { status: 'pending' },
-        [WorkflowStage.WEIGHT_LOSS_SAVINGS]: { status: 'pending' }
+        [WorkflowStage.WEIGHT_LOSS_SAVINGS]: { status: 'pending' },
+        [WorkflowStage.DIABETES_SAVINGS]: { status: 'pending' },
+        [WorkflowStage.HDCR_SAVINGS]: { status: 'pending' },
+        [WorkflowStage.PRIOR_AUTH_SAVINGS]: { status: 'pending' },
+        [WorkflowStage.QTY_LIMIT_SAVINGS]: { status: 'pending' }
         // Additional stages can be added here
       }
     })
@@ -423,6 +457,26 @@ async function calculateProgress(client: Client, fileId: string, stage: Workflow
     case WorkflowStage.WEIGHT_LOSS_SAVINGS:
       // Weight loss savings analysis progress
       progress = await isWeightLossSavingsComplete(client, fileId) ? 100 : 50;
+      break;
+      
+    case WorkflowStage.DIABETES_SAVINGS:
+      // Diabetes savings analysis progress
+      progress = await isDiabetesSavingsComplete(client, fileId) ? 100 : 50;
+      break;
+      
+    case WorkflowStage.HDCR_SAVINGS:
+      // HDCR savings analysis progress
+      progress = await isHdcrSavingsComplete(client, fileId) ? 100 : 50;
+      break;
+      
+    case WorkflowStage.PRIOR_AUTH_SAVINGS:
+      // Prior Auth savings analysis progress
+      progress = await isPriorAuthSavingsComplete(client, fileId) ? 100 : 50;
+      break;
+      
+    case WorkflowStage.QTY_LIMIT_SAVINGS:
+      // Quantity Limits savings analysis progress
+      progress = await isQtyLimitSavingsComplete(client, fileId) ? 100 : 50;
       break;
       
     case WorkflowStage.SAVINGS:
@@ -979,6 +1033,210 @@ async function isDiabetesSavingsComplete(client: Client, fileId: string) {
 }
 
 /**
+ * Invoke the HDCR processor
+ */
+async function invokeHdcrProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if HDCR savings have already been processed
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'hdcr'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`HDCR savings analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke HDCR processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    const command = new InvokeCommand({
+      FunctionName: process.env.HDCR_PROCESSOR_LAMBDA_NAME || 'hdcr-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked HDCR processor for file ${fileId}`);
+    
+    // Increase throttling time to prevent multiple invocations
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    console.error(`Error invoking HDCR processor: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if HDCR savings analysis is complete
+ */
+async function isHdcrSavingsComplete(client: Client, fileId: string) {
+  try {
+    console.log(`Checking if HDCR savings analysis is complete for file ${fileId}`);
+    
+    // Check for 'hdcr' category
+    const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'hdcr'
+    `;
+    
+    const result = await client.query(query, [fileId]);
+    const count = parseInt(result.rows[0].count);
+    
+    console.log(`Found ${count} HDCR savings records for file ${fileId}`);
+    
+    // Simple check - if we have records with category 'hdcr', HDCR savings is complete
+    return count > 0;
+  } catch (error) {
+    console.error(`Error checking HDCR savings completion: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * Invoke the Prior Auth processor
+ */
+async function invokePriorAuthProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if Prior Auth savings have already been processed
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'priorauth'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Prior Auth savings analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke Prior Auth processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    const command = new InvokeCommand({
+      FunctionName: process.env.PRIOR_AUTH_PROCESSOR_LAMBDA_NAME || 'prior-auth-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked Prior Auth processor for file ${fileId}`);
+    
+    // Increase throttling time to prevent multiple invocations
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    console.error(`Error invoking Prior Auth processor: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if Prior Auth savings analysis is complete
+ */
+async function isPriorAuthSavingsComplete(client: Client, fileId: string) {
+  try {
+    console.log(`Checking if Prior Auth savings analysis is complete for file ${fileId}`);
+    
+    // Check for 'priorauth' category
+    const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'priorauth'
+    `;
+    
+    const result = await client.query(query, [fileId]);
+    const count = parseInt(result.rows[0].count);
+    
+    console.log(`Found ${count} Prior Auth savings records for file ${fileId}`);
+    
+    // Simple check - if we have records with category 'priorauth', Prior Auth savings is complete
+    return count > 0;
+  } catch (error) {
+    console.error(`Error checking Prior Auth savings completion: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * Invoke the Quantity Limits processor
+ */
+async function invokeQtyLimitProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if Quantity Limits savings have already been processed
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'qtylim'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Quantity Limits savings analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke Quantity Limits processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    const command = new InvokeCommand({
+      FunctionName: process.env.QTY_LIMIT_PROCESSOR_LAMBDA_NAME || 'qty-limit-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked Quantity Limits processor for file ${fileId}`);
+    
+    // Increase throttling time to prevent multiple invocations
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    console.error(`Error invoking Quantity Limits processor: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if Quantity Limits savings analysis is complete
+ */
+async function isQtyLimitSavingsComplete(client: Client, fileId: string) {
+  try {
+    console.log(`Checking if Quantity Limits savings analysis is complete for file ${fileId}`);
+    
+    // Check for 'qtylim' category
+    const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'qtylim'
+    `;
+    
+    const result = await client.query(query, [fileId]);
+    const count = parseInt(result.rows[0].count);
+    
+    console.log(`Found ${count} Quantity Limits savings records for file ${fileId}`);
+    
+    // Simple check - if we have records with category 'qtylim', Quantity Limits savings is complete
+    return count > 0;
+  } catch (error) {
+    console.error(`Error checking Quantity Limits savings completion: ${error}`);
+    return false;
+  }
+}
+
+/**
  * Update workflow error status
  */
 async function updateWorkflowError(client: Client, workflowId: string, error: any) {
@@ -1019,6 +1277,9 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
   if (stages[WorkflowStage.FORMULARY_EXCLUSIONS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.FORMULARY_EXCLUSIONS;
   if (stages[WorkflowStage.WEIGHT_LOSS_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.WEIGHT_LOSS_SAVINGS;
   if (stages[WorkflowStage.DIABETES_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.DIABETES_SAVINGS;
+  if (stages[WorkflowStage.HDCR_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.HDCR_SAVINGS;
+  if (stages[WorkflowStage.PRIOR_AUTH_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PRIOR_AUTH_SAVINGS;
+  if (stages[WorkflowStage.QTY_LIMIT_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.QTY_LIMIT_SAVINGS;
   if (stages[WorkflowStage.SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.SAVINGS;
   if (stages[WorkflowStage.PRICING]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PRICING;
   
@@ -1056,6 +1317,21 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
       break;
       
     case WorkflowStage.DIABETES_SAVINGS:
+      nextStage = WorkflowStage.HDCR_SAVINGS;
+      await invokeHdcrProcessor(client, workflowId, fileId, opportunityId);
+      break;
+      
+    case WorkflowStage.HDCR_SAVINGS:
+      nextStage = WorkflowStage.PRIOR_AUTH_SAVINGS;
+      await invokePriorAuthProcessor(client, workflowId, fileId, opportunityId);
+      break;
+      
+    case WorkflowStage.PRIOR_AUTH_SAVINGS:
+      nextStage = WorkflowStage.QTY_LIMIT_SAVINGS;
+      await invokeQtyLimitProcessor(client, workflowId, fileId, opportunityId);
+      break;
+      
+    case WorkflowStage.QTY_LIMIT_SAVINGS:
       if (shouldRunSavingsAnalysis(currentStatus)) {
         nextStage = WorkflowStage.SAVINGS;
         await invokeSavingsProcessor(client, workflowId, fileId, opportunityId);
