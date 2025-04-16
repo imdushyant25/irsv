@@ -92,10 +92,7 @@ async function analyzeContractSavings(client: Client, fileId: string) {
   FROM claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND (
-      cr.lookup_fields->>'Exclusion Type' IS NULL
-      OR cr.lookup_fields->>'Exclusion Type' <> 'Plan'
-    )
+    AND COALESCE(cr.lookup_fields->>'Exclusion Type', '') NOT IN ('Plan', 'E_QL')
 ),
 grouped AS (
   SELECT
