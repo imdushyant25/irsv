@@ -18,6 +18,7 @@ var WorkflowStage;
     WorkflowStage["HDCR_SAVINGS"] = "HDCR_SAVINGS";
     WorkflowStage["PRIOR_AUTH_SAVINGS"] = "PRIOR_AUTH_SAVINGS";
     WorkflowStage["QTY_LIMIT_SAVINGS"] = "QTY_LIMIT_SAVINGS";
+    WorkflowStage["CONTRACT_SAVINGS"] = "CONTRACT_SAVINGS";
     WorkflowStage["SAVINGS"] = "SAVINGS";
     WorkflowStage["PRICING"] = "PRICING";
     WorkflowStage["COMPLETED"] = "COMPLETED";
@@ -134,6 +135,14 @@ const handler = async (event) => {
                 case WorkflowStage.QTY_LIMIT_SAVINGS:
                     // Check if Quantity Limits savings analysis is complete
                     if (await isQtyLimitSavingsComplete(client, fileId)) {
+                        // Move to Contract Savings step
+                        await updateWorkflowStage(client, workflowId, WorkflowStage.CONTRACT_SAVINGS);
+                        await invokeContractSavingsProcessor(client, workflowId, fileId, opportunityId);
+                    }
+                    break;
+                case WorkflowStage.CONTRACT_SAVINGS:
+                    // Check if Contract Savings analysis is complete
+                    if (await isContractSavingsComplete(client, fileId)) {
                         // Check if there are more stages to run
                         if (shouldRunSavingsAnalysis(currentStatus)) {
                             await updateWorkflowStage(client, workflowId, WorkflowStage.SAVINGS);
@@ -248,7 +257,8 @@ async function initializeWorkflow(client, workflowId, fileId, opportunityId) {
                 [WorkflowStage.DIABETES_SAVINGS]: { status: 'pending' },
                 [WorkflowStage.HDCR_SAVINGS]: { status: 'pending' },
                 [WorkflowStage.PRIOR_AUTH_SAVINGS]: { status: 'pending' },
-                [WorkflowStage.QTY_LIMIT_SAVINGS]: { status: 'pending' }
+                [WorkflowStage.QTY_LIMIT_SAVINGS]: { status: 'pending' },
+                [WorkflowStage.CONTRACT_SAVINGS]: { status: 'pending' }
                 // Additional stages can be added here
             }
         })
@@ -427,6 +437,10 @@ async function calculateProgress(client, fileId, stage) {
             // Quantity Limits savings analysis progress
             progress = await isQtyLimitSavingsComplete(client, fileId) ? 100 : 50;
             break;
+        case WorkflowStage.CONTRACT_SAVINGS:
+            // Contract Savings analysis progress
+            progress = await isContractSavingsComplete(client, fileId) ? 100 : 50;
+            break;
         case WorkflowStage.SAVINGS:
             // Savings analysis progress
             progress = await isSavingsComplete(client, fileId) ? 100 : 50;
@@ -444,7 +458,12 @@ async function calculateProgress(client, fileId, stage) {
         default:
             progress = 0;
     }
-    return Math.min(Math.max(progress, 0), 100); // Ensure progress is between 0-100
+    // Ensure progress is a valid number between 0-100
+    if (isNaN(progress)) {
+        console.log(`Progress calculation resulted in NaN for stage ${stage}, defaulting to 0`);
+        progress = 0;
+    }
+    return Math.min(Math.max(progress, 0), 100);
 }
 /**
  * Update the workflow stage
@@ -1075,6 +1094,65 @@ async function isQtyLimitSavingsComplete(client, fileId) {
     }
 }
 /**
+ * Invoke the Contract Savings processor
+ */
+async function invokeContractSavingsProcessor(client, workflowId, fileId, opportunityId) {
+    try {
+        // Check if Contract Savings have already been processed
+        const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'contractSavings'
+    `;
+        const checkResult = await client.query(checkQuery, [fileId]);
+        if (parseInt(checkResult.rows[0].count) > 0) {
+            console.log(`Contract Savings analysis already completed for file ${fileId}, skipping invocation`);
+            return;
+        }
+        console.log(`Preparing to invoke Contract Savings processor for file ${fileId}, opportunity ${opportunityId}`);
+        const command = new client_lambda_1.InvokeCommand({
+            FunctionName: process.env.CONTRACT_SAVINGS_PROCESSOR_LAMBDA_NAME || 'contract-savings-processor',
+            InvocationType: 'Event',
+            Payload: JSON.stringify({
+                fileId,
+                opportunityId,
+                workflowId
+            })
+        });
+        await lambdaClient.send(command);
+        console.log(`Successfully invoked Contract Savings processor for file ${fileId}`);
+        // Increase throttling time to prevent multiple invocations
+        await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    catch (error) {
+        console.error(`Error invoking Contract Savings processor: ${error}`);
+        throw error;
+    }
+}
+/**
+ * Check if Contract Savings analysis is complete
+ */
+async function isContractSavingsComplete(client, fileId) {
+    try {
+        console.log(`Checking if Contract Savings analysis is complete for file ${fileId}`);
+        // Check for 'contractSavings' category
+        const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'contractSavings'
+    `;
+        const result = await client.query(query, [fileId]);
+        const count = parseInt(result.rows[0].count);
+        console.log(`Found ${count} Contract Savings records for file ${fileId}`);
+        // Simple check - if we have records with category 'contractSavings', Contract Savings is complete
+        return count > 0;
+    }
+    catch (error) {
+        console.error(`Error checking Contract Savings completion: ${error}`);
+        return false;
+    }
+}
+/**
  * Update workflow error status
  */
 async function updateWorkflowError(client, workflowId, error) {
@@ -1102,7 +1180,7 @@ async function updateWorkflowError(client, workflowId, error) {
  * Handle retry request for a workflow in error state
  */
 async function handleRetry(client, workflowId, fileId, opportunityId, currentStatus) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     // Get the last successful stage
     let lastSuccessfulStage = WorkflowStage.INITIALIZING;
     const stages = ((_a = currentStatus.details) === null || _a === void 0 ? void 0 : _a.stages) || {};
@@ -1124,9 +1202,11 @@ async function handleRetry(client, workflowId, fileId, opportunityId, currentSta
         lastSuccessfulStage = WorkflowStage.PRIOR_AUTH_SAVINGS;
     if (((_k = stages[WorkflowStage.QTY_LIMIT_SAVINGS]) === null || _k === void 0 ? void 0 : _k.status) === 'completed')
         lastSuccessfulStage = WorkflowStage.QTY_LIMIT_SAVINGS;
-    if (((_l = stages[WorkflowStage.SAVINGS]) === null || _l === void 0 ? void 0 : _l.status) === 'completed')
+    if (((_l = stages[WorkflowStage.CONTRACT_SAVINGS]) === null || _l === void 0 ? void 0 : _l.status) === 'completed')
+        lastSuccessfulStage = WorkflowStage.CONTRACT_SAVINGS;
+    if (((_m = stages[WorkflowStage.SAVINGS]) === null || _m === void 0 ? void 0 : _m.status) === 'completed')
         lastSuccessfulStage = WorkflowStage.SAVINGS;
-    if (((_m = stages[WorkflowStage.PRICING]) === null || _m === void 0 ? void 0 : _m.status) === 'completed')
+    if (((_o = stages[WorkflowStage.PRICING]) === null || _o === void 0 ? void 0 : _o.status) === 'completed')
         lastSuccessfulStage = WorkflowStage.PRICING;
     // Determine which stage to retry from
     let nextStage;
@@ -1168,6 +1248,10 @@ async function handleRetry(client, workflowId, fileId, opportunityId, currentSta
             await invokeQtyLimitProcessor(client, workflowId, fileId, opportunityId);
             break;
         case WorkflowStage.QTY_LIMIT_SAVINGS:
+            nextStage = WorkflowStage.CONTRACT_SAVINGS;
+            await invokeContractSavingsProcessor(client, workflowId, fileId, opportunityId);
+            break;
+        case WorkflowStage.CONTRACT_SAVINGS:
             if (shouldRunSavingsAnalysis(currentStatus)) {
                 nextStage = WorkflowStage.SAVINGS;
                 await invokeSavingsProcessor(client, workflowId, fileId, opportunityId);

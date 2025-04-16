@@ -146,7 +146,7 @@ async function analyzeHdcrSavings(client, fileId) {
 async function updateHdcrClaims(client, fileId) {
     const query = `
   UPDATE claim_records cr
-  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('HDCR_WeightLoss'::text), true)
+  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('C_HDCR'::text), true)
   FROM (
     SELECT cr.record_id
     FROM claim_records cr
@@ -162,7 +162,7 @@ async function updateHdcrClaims(client, fileId) {
         OR (COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) >= 3000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60)
       )
   ) AS eligible
-  WHERE cr.record_id = eligible.record_id;
+  WHERE cr.record_id = eligible.record_id AND cr.file_id = $1;
   `;
     try {
         const result = await client.query(query, [fileId]);

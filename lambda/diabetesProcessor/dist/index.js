@@ -138,7 +138,7 @@ async function analyzeDiabetesSavings(client, fileId) {
 async function updateDiabetesClaims(client, fileId) {
     const query = `
   UPDATE claim_records cr
-  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('GLP1_WeightLoss_GPI2'::text), true)
+  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('B_GLP1_DB'::text), true)
   FROM (
     SELECT cr.record_id
     FROM claim_records cr
@@ -152,7 +152,7 @@ async function updateDiabetesClaims(client, fileId) {
       AND cr.lookup_fields->>'px_weight_loss_inj' = 'false'
       AND dm.gpi4 = '2717'
   ) AS eligible
-  WHERE cr.record_id = eligible.record_id;
+  WHERE cr.record_id = eligible.record_id AND cr.file_id=$1;
   `;
     try {
         const result = await client.query(query, [fileId]);

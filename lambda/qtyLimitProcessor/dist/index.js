@@ -147,7 +147,7 @@ async function updateQuantityLimitsClaims(client, fileId) {
     console.log(`Updating claims with QL_Standard exclusion type for file ${fileId}`);
     const query = `
     UPDATE claim_records cr
-    SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('QL_Standard'::text), true)
+    SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('E_QL'::text), true)
     FROM (
       SELECT cr.record_id
       FROM claim_records cr
@@ -163,7 +163,7 @@ async function updateQuantityLimitsClaims(client, fileId) {
         )
         AND COALESCE((cr.lookup_fields->>'mspan_unit_price')::numeric, 0) > 0
     ) AS eligible
-    WHERE cr.record_id = eligible.record_id;
+    WHERE cr.record_id = eligible.record_id AND cr.file_id = $1;
   `;
     try {
         const result = await client.query(query, [fileId]);

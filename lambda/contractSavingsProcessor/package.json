@@ -1,0 +1,21 @@
+{
+  "name": "contract-savings-processor",
+  "version": "1.0.0",
+  "description": "Lambda function to process contract savings for Illuminate Rx",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "zip": "zip -r function.zip dist node_modules",
+    "deploy": "sh ./deploy.sh"
+  },
+  "dependencies": {
+    "pg": "^8.11.3",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.2.3",
+    "@types/pg": "^8.10.2",
+    "@types/uuid": "^9.0.6",
+    "typescript": "^5.0.4"
+  }
+}

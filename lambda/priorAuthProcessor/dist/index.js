@@ -148,7 +148,7 @@ async function analyzePriorAuthSavings(client, fileId) {
 async function updatePriorAuthClaims(client, fileId) {
     const query = `
   UPDATE claim_records cr
-  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('GLP1_PA'::text), true)
+  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('D_PA'::text), true)
   FROM (
     SELECT cr.record_id
     FROM claim_records cr
@@ -160,7 +160,7 @@ async function updatePriorAuthClaims(client, fileId) {
       AND NOT (cr.lookup_fields ? 'Exclusion Type')
       AND dm.is_pa = 'Y'
   ) eligible
-  WHERE cr.record_id = eligible.record_id;
+  WHERE cr.record_id = eligible.record_id AND cr.file_id = $1;
   `;
     try {
         const result = await client.query(query, [fileId]);

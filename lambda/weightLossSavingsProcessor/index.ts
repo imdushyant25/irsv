@@ -144,17 +144,7 @@ async function analyzeWeightLossSavings(client: Client, fileId: string) {
 async function updateWeightLossClaims(client: Client, fileId: string) {
   const query = `
   UPDATE edpm.claim_records cr
-  SET lookup_fields = jsonb_set(
-      jsonb_set(
-        cr.lookup_fields, 
-        '{weight_loss_analyzed}', 
-        '"Y"', 
-        true
-      ),
-      '{weight_loss_denial_rate}', 
-      '"0.35"', 
-      true
-    ),
+  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('A_GLP1_WL'::text), true),
     updated_at = CURRENT_TIMESTAMP,
     updated_by = 'lambda-weight-loss'
   FROM (
@@ -170,7 +160,7 @@ async function updateWeightLossClaims(client: Client, fileId: string) {
       AND cr_inner.lookup_fields->>'px_weight_loss_inj' = 'false'
       AND dm.gpi6 IN ('612520', '612525')
   ) subq
-  WHERE cr.record_id = subq.record_id;
+  WHERE cr.record_id = subq.record_id AND cr.file_id=$1;
   `;
 
   try {

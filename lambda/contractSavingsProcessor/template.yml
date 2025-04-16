@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lambda function to process contract savings for Illuminate Rx'
+
+Resources:
+  ContractSavingsProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: contract-savings-processor
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Code:
+        ZipFile: |
+          // This is a placeholder. The actual code will be uploaded via the deploy script.
+          exports.handler = async () => {
+            return { statusCode: 200, body: JSON.stringify({ message: 'Placeholder function' }) };
+          };
+      MemorySize: 1024
+      Timeout: 300
+      Role: !GetAtt ContractSavingsProcessorRole.Arn
+      Environment:
+        Variables:
+          DB_HOST: '{{resolve:secretsmanager:IlluminateRxConfig:SecretString:DB_HOST}}'
+          DB_PORT: '{{resolve:secretsmanager:IlluminateRxConfig:SecretString:DB_PORT}}'
+          DB_NAME: '{{resolve:secretsmanager:IlluminateRxConfig:SecretString:DB_NAME}}'
+          DB_USER: '{{resolve:secretsmanager:IlluminateRxConfig:SecretString:DB_USER}}'
+          DB_PASSWORD: '{{resolve:secretsmanager:IlluminateRxConfig:SecretString:DB_PASSWORD}}'
+          DB_SCHEMA: '{{resolve:secretsmanager:IlluminateRxConfig:SecretString:DB_SCHEMA}}'
+
+  ContractSavingsProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ContractSavingsDashProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+Outputs:
+  ContractSavingsProcessorFunctionArn:
+    Description: The ARN of the Contract Savings Processor Lambda function
+    Value: !GetAtt ContractSavingsProcessorFunction.Arn

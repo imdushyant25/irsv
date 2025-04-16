@@ -16,6 +16,7 @@ enum WorkflowStage {
   HDCR_SAVINGS = 'HDCR_SAVINGS',  // High dollar claim review savings analysis
   PRIOR_AUTH_SAVINGS = 'PRIOR_AUTH_SAVINGS',  // Prior authorization savings analysis
   QTY_LIMIT_SAVINGS = 'QTY_LIMIT_SAVINGS',  // Quantity limits savings analysis
+  CONTRACT_SAVINGS = 'CONTRACT_SAVINGS',  // Contract savings analysis
   SAVINGS = 'SAVINGS',        // Future step: Savings analysis
   PRICING = 'PRICING',        // Future step: Pricing analysis
   COMPLETED = 'COMPLETED',
@@ -150,6 +151,15 @@ export const handler = async (event: any) => {
         case WorkflowStage.QTY_LIMIT_SAVINGS:
           // Check if Quantity Limits savings analysis is complete
           if (await isQtyLimitSavingsComplete(client, fileId)) {
+            // Move to Contract Savings step
+            await updateWorkflowStage(client, workflowId, WorkflowStage.CONTRACT_SAVINGS);
+            await invokeContractSavingsProcessor(client, workflowId, fileId, opportunityId);
+          }
+          break;
+          
+        case WorkflowStage.CONTRACT_SAVINGS:
+          // Check if Contract Savings analysis is complete
+          if (await isContractSavingsComplete(client, fileId)) {
             // Check if there are more stages to run
             if (shouldRunSavingsAnalysis(currentStatus)) {
               await updateWorkflowStage(client, workflowId, WorkflowStage.SAVINGS);
@@ -267,7 +277,8 @@ async function initializeWorkflow(client: Client, workflowId: string, fileId: st
         [WorkflowStage.DIABETES_SAVINGS]: { status: 'pending' },
         [WorkflowStage.HDCR_SAVINGS]: { status: 'pending' },
         [WorkflowStage.PRIOR_AUTH_SAVINGS]: { status: 'pending' },
-        [WorkflowStage.QTY_LIMIT_SAVINGS]: { status: 'pending' }
+        [WorkflowStage.QTY_LIMIT_SAVINGS]: { status: 'pending' },
+        [WorkflowStage.CONTRACT_SAVINGS]: { status: 'pending' }
         // Additional stages can be added here
       }
     })
@@ -479,6 +490,11 @@ async function calculateProgress(client: Client, fileId: string, stage: Workflow
       progress = await isQtyLimitSavingsComplete(client, fileId) ? 100 : 50;
       break;
       
+    case WorkflowStage.CONTRACT_SAVINGS:
+      // Contract Savings analysis progress
+      progress = await isContractSavingsComplete(client, fileId) ? 100 : 50;
+      break;
+      
     case WorkflowStage.SAVINGS:
       // Savings analysis progress
       progress = await isSavingsComplete(client, fileId) ? 100 : 50;
@@ -501,7 +517,12 @@ async function calculateProgress(client: Client, fileId: string, stage: Workflow
       progress = 0;
   }
   
-  return Math.min(Math.max(progress, 0), 100); // Ensure progress is between 0-100
+  // Ensure progress is a valid number between 0-100
+  if (isNaN(progress)) {
+    console.log(`Progress calculation resulted in NaN for stage ${stage}, defaulting to 0`);
+    progress = 0;
+  }
+  return Math.min(Math.max(progress, 0), 100);
 }
 
 /**
@@ -1237,6 +1258,74 @@ async function isQtyLimitSavingsComplete(client: Client, fileId: string) {
 }
 
 /**
+ * Invoke the Contract Savings processor
+ */
+async function invokeContractSavingsProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if Contract Savings have already been processed
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'contractSavings'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Contract Savings analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke Contract Savings processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    const command = new InvokeCommand({
+      FunctionName: process.env.CONTRACT_SAVINGS_PROCESSOR_LAMBDA_NAME || 'contract-savings-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked Contract Savings processor for file ${fileId}`);
+    
+    // Increase throttling time to prevent multiple invocations
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    console.error(`Error invoking Contract Savings processor: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if Contract Savings analysis is complete
+ */
+async function isContractSavingsComplete(client: Client, fileId: string) {
+  try {
+    console.log(`Checking if Contract Savings analysis is complete for file ${fileId}`);
+    
+    // Check for 'contractSavings' category
+    const query = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'contractSavings'
+    `;
+    
+    const result = await client.query(query, [fileId]);
+    const count = parseInt(result.rows[0].count);
+    
+    console.log(`Found ${count} Contract Savings records for file ${fileId}`);
+    
+    // Simple check - if we have records with category 'contractSavings', Contract Savings is complete
+    return count > 0;
+  } catch (error) {
+    console.error(`Error checking Contract Savings completion: ${error}`);
+    return false;
+  }
+}
+
+/**
  * Update workflow error status
  */
 async function updateWorkflowError(client: Client, workflowId: string, error: any) {
@@ -1280,6 +1369,7 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
   if (stages[WorkflowStage.HDCR_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.HDCR_SAVINGS;
   if (stages[WorkflowStage.PRIOR_AUTH_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PRIOR_AUTH_SAVINGS;
   if (stages[WorkflowStage.QTY_LIMIT_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.QTY_LIMIT_SAVINGS;
+  if (stages[WorkflowStage.CONTRACT_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.CONTRACT_SAVINGS;
   if (stages[WorkflowStage.SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.SAVINGS;
   if (stages[WorkflowStage.PRICING]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PRICING;
   
@@ -1332,6 +1422,11 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
       break;
       
     case WorkflowStage.QTY_LIMIT_SAVINGS:
+      nextStage = WorkflowStage.CONTRACT_SAVINGS;
+      await invokeContractSavingsProcessor(client, workflowId, fileId, opportunityId);
+      break;
+      
+    case WorkflowStage.CONTRACT_SAVINGS:
       if (shouldRunSavingsAnalysis(currentStatus)) {
         nextStage = WorkflowStage.SAVINGS;
         await invokeSavingsProcessor(client, workflowId, fileId, opportunityId);

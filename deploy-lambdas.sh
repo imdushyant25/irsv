@@ -12,28 +12,35 @@ fi
 # Check if workflow function name is provided
 if [ -z "$1" ]; then
   echo "Error: Workflow orchestrator function name must be provided"
-  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name>"
+  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name> <contract-savings-function-name>"
   exit 1
 fi
 
 # Check if weight loss function name is provided
 if [ -z "$2" ]; then
   echo "Error: Weight loss savings processor function name must be provided"
-  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name>"
+  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name> <contract-savings-function-name>"
   exit 1
 fi
 
 # Check if diabetes function name is provided
 if [ -z "$3" ]; then
   echo "Error: Diabetes processor function name must be provided"
-  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name>"
+  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name> <contract-savings-function-name>"
   exit 1
 fi
 
 # Check if HDCR function name is provided
 if [ -z "$4" ]; then
   echo "Error: HDCR processor function name must be provided"
-  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name>"
+  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name> <contract-savings-function-name>"
+  exit 1
+fi
+
+# Check if Contract Savings function name is provided
+if [ -z "$5" ]; then
+  echo "Error: Contract Savings processor function name must be provided"
+  echo "Usage: ./deploy-lambdas.sh <workflow-function-name> <weight-loss-function-name> <diabetes-function-name> <hdcr-function-name> <contract-savings-function-name>"
   exit 1
 fi
 
@@ -41,6 +48,7 @@ WORKFLOW_FUNCTION_NAME=$1
 WEIGHT_LOSS_FUNCTION_NAME=$2
 DIABETES_FUNCTION_NAME=$3
 HDCR_FUNCTION_NAME=$4
+CONTRACT_SAVINGS_FUNCTION_NAME=$5
 
 echo "### Building and deploying weight loss savings processor ###"
 cd lambda/weightLossSavingsProcessor
@@ -60,6 +68,12 @@ chmod +x deploy.sh
 ./deploy.sh $HDCR_FUNCTION_NAME
 cd ../..
 
+echo "### Building and deploying contract savings processor ###"
+cd lambda/contractSavingsProcessor
+chmod +x deploy.sh
+./deploy.sh $CONTRACT_SAVINGS_FUNCTION_NAME
+cd ../..
+
 echo "### Building and deploying workflow orchestrator ###"
 cd lambda/workflowOrchestrator
 chmod +x deploy.sh
@@ -70,6 +84,7 @@ echo "### Deployment Complete ###"
 echo "Weight Loss Processor: $WEIGHT_LOSS_FUNCTION_NAME"
 echo "Diabetes Processor: $DIABETES_FUNCTION_NAME"
 echo "HDCR Processor: $HDCR_FUNCTION_NAME"
+echo "Contract Savings Processor: $CONTRACT_SAVINGS_FUNCTION_NAME"
 echo "Workflow Orchestrator: $WORKFLOW_FUNCTION_NAME"
 echo 
 echo "To test the workflow, run a file through the process using the API:"

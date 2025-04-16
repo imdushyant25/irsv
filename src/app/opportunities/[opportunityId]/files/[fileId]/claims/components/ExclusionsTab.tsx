@@ -75,6 +75,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [hdcrData, setHdcrData] = useState<any>(null);
   const [priorAuthData, setPriorAuthData] = useState<any>(null);
   const [qtyLimitData, setQtyLimitData] = useState<any>(null);
+  const [contractSavingsData, setContractSavingsData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
@@ -82,6 +83,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [hdcrLoading, setHdcrLoading] = useState(true);
   const [priorAuthLoading, setPriorAuthLoading] = useState(true);
   const [qtyLimitLoading, setQtyLimitLoading] = useState(true);
+  const [contractSavingsLoading, setContractSavingsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
@@ -89,8 +91,47 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [hdcrError, setHdcrError] = useState<string | null>(null);
   const [priorAuthError, setPriorAuthError] = useState<string | null>(null);
   const [qtyLimitError, setQtyLimitError] = useState<string | null>(null);
+  const [contractSavingsError, setContractSavingsError] = useState<string | null>(null);
   
   const toast = useToast();
+  
+  // Fetch Contract Savings data from the savings API endpoint
+  const fetchContractSavingsData = async () => {
+    setContractSavingsLoading(true);
+    setContractSavingsError(null);
+    
+    try {
+      // Use the savings endpoint with the contractSavings category
+      const response = await fetch(`/api/files/${fileId}/savings?category=contractSavings`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch contract savings data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('Contract Savings data:', result.data.results);
+      
+      setContractSavingsData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching contract savings data:', error);
+      setContractSavingsError(error instanceof Error ? error.message : 'Failed to load contract savings data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load contract savings data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setContractSavingsLoading(false);
+    }
+  };
 
   // Fetch initial data
   useEffect(() => {
@@ -101,6 +142,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchHdcrSavingsData();
     fetchPriorAuthSavingsData();
     fetchQtyLimitSavingsData();
+    fetchContractSavingsData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -1076,6 +1118,99 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       </Card>
     );
   };
+  
+  // Create Contract Savings table
+  const renderContractSavingsTable = () => {
+    if (contractSavingsLoading && !contractSavingsData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Reprice Savings</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (contractSavingsError && !contractSavingsData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Reprice Savings</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load contract savings data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!contractSavingsData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Reprice Savings</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No contract savings data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Reprice Savings</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th>Exclusion Type</Th>
+                  <Th isNumeric>Incumbent Plan Cost</Th>
+                  <Th isNumeric>Illuminate Plan Cost</Th>
+                  <Th isNumeric>Member Count</Th>
+                  <Th isNumeric>Claim Count</Th>
+                  <Th isNumeric>Gross Savings</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {contractSavingsData.filter((item: any) => item.exclusion_type !== 'Total').map((category: any, index: number) => (
+                  <Tr key={index}>
+                    <Td fontWeight="medium">{category.exclusion_type}</Td>
+                    <Td isNumeric>{formatCurrency(category.incumbent_plan_cost)}</Td>
+                    <Td isNumeric>{formatCurrency(category.illuminate_plan_cost)}</Td>
+                    <Td isNumeric>{category.member_count}</Td>
+                    <Td isNumeric>{category.claim_count}</Td>
+                    <Td isNumeric color="green.600" fontWeight="medium">{formatCurrency(category.gross_savings)}</Td>
+                  </Tr>
+                ))}
+                {contractSavingsData.filter((item: any) => item.exclusion_type === 'Total').map((total: any, index: number) => (
+                  <Tr key={`total-${index}`} fontWeight="bold" bg="gray.50">
+                    <Td>Total</Td>
+                    <Td isNumeric>{formatCurrency(total.incumbent_plan_cost)}</Td>
+                    <Td isNumeric>{formatCurrency(total.illuminate_plan_cost)}</Td>
+                    <Td isNumeric>{total.member_count}</Td>
+                    <Td isNumeric>{total.claim_count}</Td>
+                    <Td isNumeric color="green.600">{formatCurrency(total.gross_savings)}</Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
 
   return (
     <VStack spacing={6} align="stretch">
@@ -1146,14 +1281,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       
       {/* Contract Savings Tab Content */}
       {activeTab === 'contract' && (
-        <Card variant="outline" mb={4}>
-          <CardHeader px={6} py={4}>
-            <Heading size="md">Contract Savings Analysis</Heading>
-          </CardHeader>
-          <CardBody px={6} pt={0} pb={4}>
-            <Text p={4} textAlign="center">Contract savings analysis will be available in a future update.</Text>
-          </CardBody>
-        </Card>
+        <>
+          {renderContractSavingsTable()}
+        </>
       )}
       
       {/* Additional Savings Tab Content */}
