@@ -33,19 +33,25 @@ const handler = async (event) => {
             await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
         }
         // Run all analyses in parallel
-        console.log('Starting HDHP, ACA and Rebate analyses in parallel');
-        const [hdgpResults, acaResults, rebateResults] = await Promise.all([
+        console.log('Starting HDHP, ACA, Rebate, RDS, PAP, and HANS analyses in parallel');
+        const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults] = await Promise.all([
             analyzeHdhpPreventive(client, fileId),
             analyzeAcaPreventive(client, fileId),
-            analyzeRebateFinancial(client, fileId)
+            analyzeRebateFinancial(client, fileId),
+            analyzeRdsFinancial(client, fileId),
+            analyzePapFinancial(client, fileId),
+            analyzeHansFinancial(client, fileId)
         ]);
         // Save all results in parallel
         await Promise.all([
             saveResultsToDatabase(client, fileId, 'fcHDHP', hdgpResults),
             saveResultsToDatabase(client, fileId, 'fcACA', acaResults),
-            saveResultsToDatabase(client, fileId, 'fcRebate', rebateResults)
+            saveResultsToDatabase(client, fileId, 'fcRebate', rebateResults),
+            saveResultsToDatabase(client, fileId, 'fcRDS', rdsResults),
+            saveResultsToDatabase(client, fileId, 'fcPAP', papResults),
+            saveResultsToDatabase(client, fileId, 'fcHANS', hansResults)
         ]);
-        console.log('HDHP, ACA and Rebate analyses completed and saved in parallel');
+        console.log('HDHP, ACA, Rebate, RDS, PAP, and HANS analyses completed and saved in parallel');
         return {
             statusCode: 200,
             body: {
@@ -54,7 +60,10 @@ const handler = async (event) => {
                 opportunityId,
                 hdgpResults,
                 acaResults,
-                rebateResults
+                rebateResults,
+                rdsResults,
+                papResults,
+                hansResults
             }
         };
     }
@@ -231,6 +240,163 @@ async function analyzeRebateFinancial(client, fileId) {
     }
     catch (error) {
         console.error('Error during rebate financial analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze Retiree Drug Subsidy (RDS) eligibility
+ */
+async function analyzeRdsFinancial(client, fileId) {
+    const query = `
+    WITH rds_candidates AS (
+      SELECT
+        cr.mapped_fields->>'member_id' AS member_id,
+        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost
+      FROM claim_records cr
+      WHERE cr.file_id = $1
+        AND COALESCE((cr.dynamic_fields->'ageEnrichment'->>'ageAtFillDate')::int, 0) >= 65
+    ),
+    per_member_costs AS (
+      SELECT
+        member_id,
+        SUM(plan_cost) AS total_cost
+      FROM rds_candidates
+      GROUP BY member_id
+    ),
+    eligible_members AS (
+      SELECT
+        member_id,
+        CASE
+          WHEN total_cost < 590 THEN 0                     -- below RDS threshold
+          WHEN total_cost > 12150 THEN 12150              -- cap per flow
+          ELSE total_cost
+        END AS capped_cost
+      FROM per_member_costs
+      WHERE total_cost >= 590
+    )
+    SELECT json_build_object(
+      'eligible_member_count', COUNT(*)::int,
+      'total_rds_plan_cost', ROUND(SUM(capped_cost), 2),
+      'estimated_rds_savings', ROUND(SUM(capped_cost) * 0.28, 2)
+    ) AS rds_financial_callout
+    FROM eligible_members;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        return result.rows[0]?.rds_financial_callout || {
+            eligible_member_count: 0,
+            total_rds_plan_cost: 0,
+            estimated_rds_savings: 0
+        };
+    }
+    catch (error) {
+        console.error('Error during RDS financial analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze Patient Assistance Program (PAP) financial impact
+ */
+async function analyzePapFinancial(client, fileId) {
+    const query = `
+    WITH pap_plan_excluded_claims AS (
+      SELECT
+        cr.record_id,
+        cr.mapped_fields->>'member_id' AS member_id,
+        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost
+      FROM claim_records cr
+      WHERE cr.file_id = $1
+        AND cr.lookup_fields->>'pap' = 'Y'
+        AND COALESCE(cr.lookup_fields->>'Exclusion Type', '') = 'Plan'
+    ),
+    pap_metrics AS (
+      SELECT
+        COUNT(*) AS total_pap_claims,
+        COUNT(DISTINCT member_id) AS impacted_members,
+        ROUND(SUM(plan_cost), 2) AS pap_gross_cost,
+        ROUND(SUM(plan_cost) * 0.25, 2) AS pap_fees,
+        ROUND(SUM(plan_cost) * 0.75, 2) AS pap_savings
+      FROM pap_plan_excluded_claims
+    )
+    SELECT json_build_object(
+      'total_pap_claims', total_pap_claims,
+      'impacted_members', impacted_members,
+      'pap_gross_cost', pap_gross_cost,
+      'pap_fees', pap_fees,
+      'pap_savings', pap_savings
+    ) AS pap_financial_callout
+    FROM pap_metrics;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        const papData = result.rows[0]?.pap_financial_callout || {
+            total_pap_claims: 0,
+            impacted_members: 0,
+            pap_gross_cost: 0,
+            pap_fees: 0,
+            pap_savings: 0
+        };
+        // Handle null values from SQL when no data is found
+        if (papData.pap_gross_cost === null)
+            papData.pap_gross_cost = 0;
+        if (papData.pap_fees === null)
+            papData.pap_fees = 0;
+        if (papData.pap_savings === null)
+            papData.pap_savings = 0;
+        return papData;
+    }
+    catch (error) {
+        console.error('Error during PAP financial analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze Hospital at Home Network Solutions (HANS) financial impact
+ */
+async function analyzeHansFinancial(client, fileId) {
+    const query = `
+    WITH hans_claims AS (
+      SELECT
+        cr.record_id,
+        cr.mapped_fields->>'member_id' AS member_id,
+        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.mapped_fields->>'quantity')::numeric, 0) AS quantity,
+        COALESCE(dm.hans_unit_cost::numeric, 0) AS hans_unit_cost
+      FROM claim_records cr
+      JOIN drugs_master dm
+        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+      WHERE cr.file_id = $1
+        AND cr.lookup_fields->>'hans' = 'Y'
+        AND cr.lookup_fields->>'is_in_formulary' = 'true'
+    ),
+    aggregated AS (
+      SELECT
+        COUNT(*) AS total_claims,
+        COUNT(DISTINCT member_id) AS impacted_members,
+        ROUND(SUM(plan_cost) - SUM(quantity * hans_unit_cost), 2) AS savings
+      FROM hans_claims
+    )
+    SELECT json_build_object(
+      'total_claims', total_claims,
+      'impacted_members', impacted_members,
+      'savings', savings
+    ) AS hans_financial_callout
+    FROM aggregated;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        const hansData = result.rows[0]?.hans_financial_callout || {
+            total_claims: 0,
+            impacted_members: 0,
+            savings: 0
+        };
+        // Handle null values from SQL when no data is found
+        if (hansData.savings === null)
+            hansData.savings = 0;
+        return hansData;
+    }
+    catch (error) {
+        console.error('Error during HANS financial analysis:', error);
         throw error;
     }
 }

@@ -79,6 +79,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [hddhpData, setHddhpData] = useState<any>(null);
   const [acaData, setAcaData] = useState<any>(null);
   const [rebateData, setRebateData] = useState<any>(null);
+  const [rdsData, setRdsData] = useState<any>(null);
+  const [papData, setPapData] = useState<any>(null);
+  const [hansData, setHansData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
@@ -90,6 +93,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [hddhpLoading, setHddhpLoading] = useState(true);
   const [acaLoading, setAcaLoading] = useState(true);
   const [rebateLoading, setRebateLoading] = useState(true);
+  const [rdsLoading, setRdsLoading] = useState(true);
+  const [papLoading, setPapLoading] = useState(true);
+  const [hansLoading, setHansLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
@@ -101,6 +107,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [hddhpError, setHddhpError] = useState<string | null>(null);
   const [acaError, setAcaError] = useState<string | null>(null);
   const [rebateError, setRebateError] = useState<string | null>(null);
+  const [rdsError, setRdsError] = useState<string | null>(null);
+  const [papError, setPapError] = useState<string | null>(null);
+  const [hansError, setHansError] = useState<string | null>(null);
   
   const toast = useToast();
   
@@ -258,6 +267,117 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     }
   };
 
+  // Fetch RDS data
+  const fetchRDSData = async () => {
+    setRdsLoading(true);
+    setRdsError(null);
+    
+    try {
+      // Use the savings endpoint with the fcRDS category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcRDS`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch RDS data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // The API might return null data with a success message
+      // This is normal if the analysis hasn't been run yet, so we don't throw an error
+      console.log('RDS data response:', result);
+      
+      // Store the data exactly as returned from the API (even if null)
+      setRdsData(result.data);
+    } catch (error) {
+      console.error('Error fetching RDS data:', error);
+      setRdsError(error instanceof Error ? error.message : 'Failed to load RDS data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load Retiree Drug Subsidy data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setRdsLoading(false);
+    }
+  };
+
+  // Fetch PAP data
+  const fetchPAPData = async () => {
+    setPapLoading(true);
+    setPapError(null);
+    
+    try {
+      // Use the savings endpoint with the fcPAP category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcPAP`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch PAP data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // The API might return null data with a success message
+      // This is normal if the analysis hasn't been run yet, so we don't throw an error
+      console.log('PAP data response:', result);
+      
+      // Store the data exactly as returned from the API (even if null)
+      setPapData(result.data);
+    } catch (error) {
+      console.error('Error fetching PAP data:', error);
+      setPapError(error instanceof Error ? error.message : 'Failed to load PAP data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load Patient Assistance Program data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setPapLoading(false);
+    }
+  };
+
+  // Fetch HANS data
+  const fetchHANSData = async () => {
+    setHansLoading(true);
+    setHansError(null);
+    
+    try {
+      // Use the savings endpoint with the fcHANS category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcHANS`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch HANS data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // The API might return null data with a success message
+      // This is normal if the analysis hasn't been run yet, so we don't throw an error
+      console.log('HANS data response:', result);
+      
+      // Store the data exactly as returned from the API (even if null)
+      setHansData(result.data);
+    } catch (error) {
+      console.error('Error fetching HANS data:', error);
+      setHansError(error instanceof Error ? error.message : 'Failed to load HANS data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load Hospital at Home Network Solutions data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setHansLoading(false);
+    }
+  };
+
   // Fetch initial data
   useEffect(() => {
     fetchPlanExclusionsData();
@@ -271,6 +391,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchHDHPData();
     fetchACAData();
     fetchRebateData();
+    fetchRDSData();
+    fetchPAPData();
+    fetchHANSData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -1318,6 +1441,317 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   };
   
+  // Create Retiree Drug Subsidy (RDS) table
+  const renderRDSTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering RDS table with data:", rdsData);
+    console.log("RDS loading state:", rdsLoading);
+    console.log("RDS error state:", rdsError);
+    
+    if (rdsLoading && !rdsData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Retiree Drug Subsidy</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (rdsError && !rdsData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Retiree Drug Subsidy</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load Retiree Drug Subsidy data: {rdsError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Check if there is no data or if the data is empty
+    // Handle the case where API returns success but with null data
+    const hasNoData = !rdsData || 
+                     rdsData === null ||
+                     !rdsData.results || 
+                     rdsData.results === null ||
+                     (rdsData.results && 
+                      (!rdsData.results.eligible_member_count || 
+                       rdsData.results.eligible_member_count === 0));
+                      
+    if (hasNoData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Retiree Drug Subsidy</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No Retiree Drug Subsidy data found. Savings analysis has not yet been run or no eligible members were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Getting the RDS data from the exact structure shown in the example
+    const resultsData = rdsData.results;
+    // Double-check all values and use default values to prevent runtime errors
+    const eligibleMemberCount = resultsData?.eligible_member_count || 0;
+    const totalRdsPlanCost = resultsData?.total_rds_plan_cost || 0;
+    const estimatedRdsSavings = resultsData?.estimated_rds_savings || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Retiree Drug Subsidy</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Eligible Members</Th>
+                  <Th isNumeric>Total RDS Plan Cost</Th>
+                  <Th isNumeric>Estimated RDS Savings</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{eligibleMemberCount}</Td>
+                  <Td isNumeric>{formatCurrency(totalRdsPlanCost)}</Td>
+                  <Td isNumeric color="green.600">{formatCurrency(estimatedRdsSavings)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
+  // Create Patient Assistance Program (PAP) table
+  const renderPAPTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering PAP table with data:", papData);
+    console.log("PAP loading state:", papLoading);
+    console.log("PAP error state:", papError);
+    
+    if (papLoading && !papData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">PAP</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (papError && !papData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">PAP</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load Patient Assistance Program data: {papError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Check if there is no data or if the data is empty
+    // Handle the case where API returns success but with null data
+    const hasNoData = !papData || 
+                      papData === null ||
+                      !papData.results || 
+                      papData.results === null ||
+                      (papData.results && 
+                       (!papData.results.total_pap_claims || 
+                        papData.results.total_pap_claims === 0));
+                      
+    if (hasNoData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">PAP</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No Patient Assistance Program data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Getting the PAP data from the API structure
+    const resultsData = papData.results;
+    let papFinancialCallout = resultsData;
+    
+    // Handle both direct format and nested format
+    if (resultsData.pap_financial_callout) {
+      papFinancialCallout = resultsData.pap_financial_callout;
+    }
+    
+    // Extract fields with safe defaults
+    const totalPapClaims = papFinancialCallout?.total_pap_claims || 0;
+    const impactedMembers = papFinancialCallout?.impacted_members || 0;
+    const papGrossCost = papFinancialCallout?.pap_gross_cost || 0;
+    const papFees = papFinancialCallout?.pap_fees || 0;
+    const papSavings = papFinancialCallout?.pap_savings || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">PAP</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Claims</Th>
+                  <Th isNumeric>Members</Th>
+                  <Th isNumeric>Gross Cost</Th>
+                  <Th isNumeric>Fees (25%)</Th>
+                  <Th isNumeric>Savings (75%)</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{totalPapClaims}</Td>
+                  <Td isNumeric>{impactedMembers}</Td>
+                  <Td isNumeric>{formatCurrency(papGrossCost)}</Td>
+                  <Td isNumeric>{formatCurrency(papFees)}</Td>
+                  <Td isNumeric color="green.600">{formatCurrency(papSavings)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
+  // Create Hospital at Home Network Solutions (HANS) table
+  const renderHANSTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering HANS table with data:", hansData);
+    console.log("HANS loading state:", hansLoading);
+    console.log("HANS error state:", hansError);
+    
+    if (hansLoading && !hansData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">HANS</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (hansError && !hansData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">HANS</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load Hospital at Home Network Solutions data: {hansError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Check if there is no data or if the data is empty
+    // Handle the case where API returns success but with null data
+    const hasNoData = !hansData || 
+                      hansData === null ||
+                      !hansData.results || 
+                      hansData.results === null ||
+                      (hansData.results && 
+                       (!hansData.results.total_claims || 
+                        hansData.results.total_claims === 0));
+                      
+    if (hasNoData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">HANS</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No Hospital at Home Network Solutions data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Getting the HANS data from the API structure
+    const resultsData = hansData.results;
+    let hansFinancialCallout = resultsData;
+    
+    // Handle both direct format and nested format
+    if (resultsData.hans_financial_callout) {
+      hansFinancialCallout = resultsData.hans_financial_callout;
+    }
+    
+    // Extract fields with safe defaults
+    const totalClaims = hansFinancialCallout?.total_claims || 0;
+    const impactedMembers = hansFinancialCallout?.impacted_members || 0;
+    const savings = hansFinancialCallout?.savings || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">HANS</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Claims</Th>
+                  <Th isNumeric>Members</Th>
+                  <Th isNumeric>Savings</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{totalClaims}</Td>
+                  <Td isNumeric>{impactedMembers}</Td>
+                  <Td isNumeric color="green.600">{formatCurrency(savings)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
   // Create Prior Auth savings table
   const renderPriorAuthTable = () => {
     if (priorAuthLoading && !priorAuthData) {
@@ -1686,6 +2120,15 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
           
           {/* Rebate Financial Analysis Table */}
           {renderRebateTable()}
+          
+          {/* Retiree Drug Subsidy (RDS) Table */}
+          {renderRDSTable()}
+          
+          {/* Patient Assistance Program (PAP) Table */}
+          {renderPAPTable()}
+          
+          {/* Hospital at Home Network Solutions (HANS) Table */}
+          {renderHANSTable()}
         </>
       )}
     </VStack>
