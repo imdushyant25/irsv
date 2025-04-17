@@ -76,6 +76,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [priorAuthData, setPriorAuthData] = useState<any>(null);
   const [qtyLimitData, setQtyLimitData] = useState<any>(null);
   const [contractSavingsData, setContractSavingsData] = useState<any>(null);
+  const [hddhpData, setHddhpData] = useState<any>(null);
+  const [acaData, setAcaData] = useState<any>(null);
+  const [rebateData, setRebateData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
@@ -84,6 +87,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [priorAuthLoading, setPriorAuthLoading] = useState(true);
   const [qtyLimitLoading, setQtyLimitLoading] = useState(true);
   const [contractSavingsLoading, setContractSavingsLoading] = useState(true);
+  const [hddhpLoading, setHddhpLoading] = useState(true);
+  const [acaLoading, setAcaLoading] = useState(true);
+  const [rebateLoading, setRebateLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
@@ -92,6 +98,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [priorAuthError, setPriorAuthError] = useState<string | null>(null);
   const [qtyLimitError, setQtyLimitError] = useState<string | null>(null);
   const [contractSavingsError, setContractSavingsError] = useState<string | null>(null);
+  const [hddhpError, setHddhpError] = useState<string | null>(null);
+  const [acaError, setAcaError] = useState<string | null>(null);
+  const [rebateError, setRebateError] = useState<string | null>(null);
   
   const toast = useToast();
   
@@ -133,6 +142,122 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     }
   };
 
+  // Fetch HDHP preventive data
+  const fetchHDHPData = async () => {
+    setHddhpLoading(true);
+    setHddhpError(null);
+    
+    try {
+      // Use the savings endpoint with the fcHDHP category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcHDHP`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch HDHP preventive data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('HDHP preventive data:', result.data.results);
+      
+      setHddhpData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching HDHP preventive data:', error);
+      setHddhpError(error instanceof Error ? error.message : 'Failed to load HDHP preventive data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load HDHP preventive data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setHddhpLoading(false);
+    }
+  };
+  
+  // Fetch ACA preventive data
+  const fetchACAData = async () => {
+    setAcaLoading(true);
+    setAcaError(null);
+    
+    try {
+      // Use the savings endpoint with the fcACA category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcACA`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ACA preventive data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || !result.data.results) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('ACA preventive data:', result.data.results);
+      
+      setAcaData(result.data.results);
+    } catch (error) {
+      console.error('Error fetching ACA preventive data:', error);
+      setAcaError(error instanceof Error ? error.message : 'Failed to load ACA preventive data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load ACA preventive data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setAcaLoading(false);
+    }
+  };
+
+  // Fetch rebate data
+  const fetchRebateData = async () => {
+    setRebateLoading(true);
+    setRebateError(null);
+    
+    try {
+      // Use the savings endpoint with the fcRebate category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcRebate`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch rebate data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data) {
+        throw new Error('Invalid response format from API');
+      }
+      
+      console.log('Rebate data:', result.data);
+      
+      // Store the data exactly as returned from the API
+      // The render function will extract the needed fields
+      setRebateData(result.data);
+    } catch (error) {
+      console.error('Error fetching rebate data:', error);
+      setRebateError(error instanceof Error ? error.message : 'Failed to load rebate data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load rebate data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setRebateLoading(false);
+    }
+  };
+
   // Fetch initial data
   useEffect(() => {
     fetchPlanExclusionsData();
@@ -143,6 +268,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchPriorAuthSavingsData();
     fetchQtyLimitSavingsData();
     fetchContractSavingsData();
+    fetchHDHPData();
+    fetchACAData();
+    fetchRebateData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -929,6 +1057,267 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   };
   
+  // Create HDHP Preventive table
+  const renderHDHPTable = () => {
+    if (hddhpLoading && !hddhpData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">HDHP Preventive</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (hddhpError && !hddhpData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">HDHP Preventive</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load HDHP preventive data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!hddhpData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">HDHP Preventive</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No HDHP preventive data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">HDHP Preventive</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th>Category</Th>
+                  <Th isNumeric>Total Cost</Th>
+                  <Th isNumeric>Impacted Members</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {hddhpData.filter((item: any) => item.category !== 'Total Impacted Members').map((category: any, index: number) => (
+                  <Tr key={index}>
+                    <Td fontWeight="medium">{category.category}</Td>
+                    <Td isNumeric>{formatCurrency(category.total_cost || 0)}</Td>
+                    <Td isNumeric>{category.impacted_members}</Td>
+                  </Tr>
+                ))}
+                {hddhpData.filter((item: any) => item.category === 'Total Impacted Members').map((total: any, index: number) => (
+                  <Tr key={`total-${index}`} fontWeight="bold" bg="gray.50">
+                    <Td>{total.category}</Td>
+                    <Td isNumeric>{total.total_cost !== null ? formatCurrency(total.total_cost) : '-'}</Td>
+                    <Td isNumeric>{total.impacted_members}</Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
+  // Create ACA Preventive table
+  const renderACATable = () => {
+    if (acaLoading && !acaData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">ACA Preventive</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (acaError && !acaData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">ACA Preventive</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load ACA preventive data</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (!acaData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">ACA Preventive</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No ACA preventive data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">ACA Preventive</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th>Category</Th>
+                  <Th isNumeric>Total Cost</Th>
+                  <Th isNumeric>Impacted Members</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {acaData.filter((item: any) => item.category !== 'Total Impacted Members').map((category: any, index: number) => (
+                  <Tr key={index}>
+                    <Td fontWeight="medium">{category.category}</Td>
+                    <Td isNumeric>{formatCurrency(category.total_cost || 0)}</Td>
+                    <Td isNumeric>{category.impacted_members}</Td>
+                  </Tr>
+                ))}
+                {acaData.filter((item: any) => item.category === 'Total Impacted Members').map((total: any, index: number) => (
+                  <Tr key={`total-${index}`} fontWeight="bold" bg="gray.50">
+                    <Td>{total.category}</Td>
+                    <Td isNumeric>{total.total_cost !== null ? formatCurrency(total.total_cost) : '-'}</Td>
+                    <Td isNumeric>{total.impacted_members}</Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
+  // Create Rebate Financial Analysis table
+  const renderRebateTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering rebate table with data:", rebateData);
+    console.log("Rebate loading state:", rebateLoading);
+    console.log("Rebate error state:", rebateError);
+    
+    if (rebateLoading && !rebateData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Rebate Financial Analysis</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (rebateError && !rebateData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Rebate Financial Analysis</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load rebate financial analysis data: {rebateError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Check if there is no data or if the data is empty
+    const hasNoData = !rebateData || 
+                     !rebateData.results || 
+                     (rebateData.results && 
+                      (!rebateData.results.total_plan_cost || 
+                       rebateData.results.total_plan_cost === 0));
+                      
+    if (hasNoData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Rebate Financial Analysis</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No rebate financial analysis data found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Getting the rebate data from the exact structure shown in the example
+    const resultsData = rebateData.results;
+    const totalPlanCost = resultsData.total_plan_cost || 0;
+    const eligibleClaimCount = resultsData.eligible_claim_count || 0;
+    const eligibleMemberCount = resultsData.eligible_member_count || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Rebate Financial Analysis</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Total Plan Cost</Th>
+                  <Th isNumeric>Eligible Claims</Th>
+                  <Th isNumeric>Eligible Members</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{formatCurrency(totalPlanCost)}</Td>
+                  <Td isNumeric>{eligibleClaimCount}</Td>
+                  <Td isNumeric>{eligibleMemberCount}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
   // Create Prior Auth savings table
   const renderPriorAuthTable = () => {
     if (priorAuthLoading && !priorAuthData) {
@@ -1288,14 +1677,16 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       
       {/* Additional Savings Tab Content */}
       {activeTab === 'additional' && (
-        <Card variant="outline" mb={4}>
-          <CardHeader px={6} py={4}>
-            <Heading size="md">Additional Savings Analysis</Heading>
-          </CardHeader>
-          <CardBody px={6} pt={0} pb={4}>
-            <Text p={4} textAlign="center">Additional savings analysis will be available in a future update.</Text>
-          </CardBody>
-        </Card>
+        <>
+          {/* HDHP Preventive Table */}
+          {renderHDHPTable()}
+          
+          {/* ACA Preventive Table */}
+          {renderACATable()}
+          
+          {/* Rebate Financial Analysis Table */}
+          {renderRebateTable()}
+        </>
       )}
     </VStack>
   );

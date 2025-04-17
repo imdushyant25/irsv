@@ -1,1 +1,6 @@
-{}
+{
+  "/api/files/[fileId]/savings/route": "app/api/files/[fileId]/savings/route.js",
+  "/opportunities/[opportunityId]/files/[fileId]/claims/page": "app/opportunities/[opportunityId]/files/[fileId]/claims/page.js",
+  "/api/files/[fileId]/route": "app/api/files/[fileId]/route.js",
+  "/api/files/[fileId]/claims/route": "app/api/files/[fileId]/claims/route.js"
+}

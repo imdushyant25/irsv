@@ -17,8 +17,6 @@ enum WorkflowStage {
   PRIOR_AUTH_SAVINGS = 'PRIOR_AUTH_SAVINGS',  // Prior authorization savings analysis
   QTY_LIMIT_SAVINGS = 'QTY_LIMIT_SAVINGS',  // Quantity limits savings analysis
   CONTRACT_SAVINGS = 'CONTRACT_SAVINGS',  // Contract savings analysis
-  SAVINGS = 'SAVINGS',        // Future step: Savings analysis
-  PRICING = 'PRICING',        // Future step: Pricing analysis
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR'
 }
@@ -160,38 +158,17 @@ export const handler = async (event: any) => {
         case WorkflowStage.CONTRACT_SAVINGS:
           // Check if Contract Savings analysis is complete
           if (await isContractSavingsComplete(client, fileId)) {
-            // Check if there are more stages to run
-            if (shouldRunSavingsAnalysis(currentStatus)) {
-              await updateWorkflowStage(client, workflowId, WorkflowStage.SAVINGS);
-              await invokeSavingsProcessor(client, workflowId, fileId, opportunityId);
-            } else {
-              await updateWorkflowStage(client, workflowId, WorkflowStage.COMPLETED);
-            }
-          }
-          break;
-          
-        case WorkflowStage.SAVINGS:
-          // Check if savings analysis is complete
-          if (await isSavingsComplete(client, fileId)) {
-            // Check if there are more stages to run
-            if (shouldRunPricingAnalysis(currentStatus)) {
-              await updateWorkflowStage(client, workflowId, WorkflowStage.PRICING);
-              await invokePricingProcessor(client, workflowId, fileId, opportunityId);
-            } else {
-              await updateWorkflowStage(client, workflowId, WorkflowStage.COMPLETED);
-            }
-          }
-          break;
-          
-        case WorkflowStage.PRICING:
-          // Check if pricing analysis is complete
-          if (await isPricingComplete(client, fileId)) {
+            // Complete the workflow
             await updateWorkflowStage(client, workflowId, WorkflowStage.COMPLETED);
+            // Fire financial processor as a side process when workflow is completed
+            await invokeFinancialProcessor(client, fileId, opportunityId);
           }
           break;
+          
           
         case WorkflowStage.COMPLETED:
-          // Workflow is already complete, nothing to do
+          // Workflow is already complete
+          // We could trigger financial processor here again if needed for retries
           break;
           
         case WorkflowStage.ERROR:
@@ -495,15 +472,6 @@ async function calculateProgress(client: Client, fileId: string, stage: Workflow
       progress = await isContractSavingsComplete(client, fileId) ? 100 : 50;
       break;
       
-    case WorkflowStage.SAVINGS:
-      // Savings analysis progress
-      progress = await isSavingsComplete(client, fileId) ? 100 : 50;
-      break;
-      
-    case WorkflowStage.PRICING:
-      // Pricing analysis progress
-      progress = await isPricingComplete(client, fileId) ? 100 : 50;
-      break;
       
     case WorkflowStage.COMPLETED:
       progress = 100;
@@ -766,88 +734,6 @@ async function isExclusionsComplete(client: Client, fileId: string) {
   }
 }
 
-/**
- * Check if we should run savings analysis
- */
-function shouldRunSavingsAnalysis(currentStatus: any) {
-  // Add your business logic here to determine if savings analysis should run
-  // Could be based on configuration, file contents, etc.
-  return process.env.ENABLE_SAVINGS_ANALYSIS === 'true';
-}
-
-/**
- * Invoke the savings processor lambda
- */
-async function invokeSavingsProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
-  const command = new InvokeCommand({
-    FunctionName: process.env.SAVINGS_PROCESSOR_LAMBDA || 'savings-processor',
-    InvocationType: 'Event',
-    Payload: JSON.stringify({
-      fileId,
-      opportunityId,
-      workflowId
-    })
-  });
-  
-  await lambdaClient.send(command);
-  console.log(`Invoked savings processor for file ${fileId}`);
-}
-
-/**
- * Check if savings analysis is complete
- */
-async function isSavingsComplete(client: Client, fileId: string) {
-  const query = `
-    SELECT COUNT(*) as count
-    FROM savings_results
-    WHERE file_id = $1 AND category = 'savings'
-  `;
-  
-  const result = await client.query(query, [fileId]);
-  
-  return parseInt(result.rows[0].count) > 0;
-}
-
-/**
- * Check if we should run pricing analysis
- */
-function shouldRunPricingAnalysis(currentStatus: any) {
-  // Add your business logic here to determine if pricing analysis should run
-  return process.env.ENABLE_PRICING_ANALYSIS === 'true';
-}
-
-/**
- * Invoke the pricing processor lambda
- */
-async function invokePricingProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
-  const command = new InvokeCommand({
-    FunctionName: process.env.PRICING_PROCESSOR_LAMBDA || 'pricing-processor',
-    InvocationType: 'Event',
-    Payload: JSON.stringify({
-      fileId,
-      opportunityId,
-      workflowId
-    })
-  });
-  
-  await lambdaClient.send(command);
-  console.log(`Invoked pricing processor for file ${fileId}`);
-}
-
-/**
- * Check if pricing analysis is complete
- */
-async function isPricingComplete(client: Client, fileId: string) {
-  const query = `
-    SELECT COUNT(*) as count
-    FROM savings_results
-    WHERE file_id = $1 AND category = 'pricing'
-  `;
-  
-  const result = await client.query(query, [fileId]);
-  
-  return parseInt(result.rows[0].count) > 0;
-}
 
 /**
  * Invoke the formulary exclusions processor
@@ -1326,6 +1212,45 @@ async function isContractSavingsComplete(client: Client, fileId: string) {
 }
 
 /**
+ * Invoke the Financial processor - fire and forget
+ */
+async function invokeFinancialProcessor(client: Client, fileId: string, opportunityId: string) {
+  try {
+    // Check if Financial analysis have already been processed
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND (category = 'fcHDHP' OR category = 'fcACA')
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Financial analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke Financial processor for file ${fileId}, opportunity ${opportunityId}`);
+    
+    // Fire and forget - no workflowId needed
+    const command = new InvokeCommand({
+      FunctionName: process.env.FINANCIAL_PROCESSOR_LAMBDA_NAME || 'financial-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked Financial processor for file ${fileId} (fire and forget)`);
+  } catch (error) {
+    console.error(`Error invoking Financial processor: ${error}`);
+    // Don't throw the error since this is a side process
+    // Just log it and continue
+  }
+}
+
+/**
  * Update workflow error status
  */
 async function updateWorkflowError(client: Client, workflowId: string, error: any) {
@@ -1344,7 +1269,7 @@ async function updateWorkflowError(client: Client, workflowId: string, error: an
       updated_by = 'workflow-orchestrator'
     WHERE workflow_id = $3
   `;
-  
+
   await client.query(query, [
     WorkflowStage.ERROR,
     JSON.stringify(errorDetails),
@@ -1370,8 +1295,6 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
   if (stages[WorkflowStage.PRIOR_AUTH_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PRIOR_AUTH_SAVINGS;
   if (stages[WorkflowStage.QTY_LIMIT_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.QTY_LIMIT_SAVINGS;
   if (stages[WorkflowStage.CONTRACT_SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.CONTRACT_SAVINGS;
-  if (stages[WorkflowStage.SAVINGS]?.status === 'completed') lastSuccessfulStage = WorkflowStage.SAVINGS;
-  if (stages[WorkflowStage.PRICING]?.status === 'completed') lastSuccessfulStage = WorkflowStage.PRICING;
   
   // Determine which stage to retry from
   let nextStage;
@@ -1427,25 +1350,9 @@ async function handleRetry(client: Client, workflowId: string, fileId: string, o
       break;
       
     case WorkflowStage.CONTRACT_SAVINGS:
-      if (shouldRunSavingsAnalysis(currentStatus)) {
-        nextStage = WorkflowStage.SAVINGS;
-        await invokeSavingsProcessor(client, workflowId, fileId, opportunityId);
-      } else {
-        nextStage = WorkflowStage.COMPLETED;
-      }
-      break;
-      
-    case WorkflowStage.SAVINGS:
-      if (shouldRunPricingAnalysis(currentStatus)) {
-        nextStage = WorkflowStage.PRICING;
-        await invokePricingProcessor(client, workflowId, fileId, opportunityId);
-      } else {
-        nextStage = WorkflowStage.COMPLETED;
-      }
-      break;
-      
-    case WorkflowStage.PRICING:
       nextStage = WorkflowStage.COMPLETED;
+      // Fire financial processor as a side process (fire and forget)
+      await invokeFinancialProcessor(client, fileId, opportunityId);
       break;
       
     default:

@@ -1,0 +1,22 @@
+{
+  "name": "financial-processor",
+  "version": "1.0.0",
+  "description": "Financial analysis processor for preventive drug lists",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "zip": "zip -r function.zip dist node_modules",
+    "deploy": "sh deploy.sh"
+  },
+  "dependencies": {
+    "@aws-sdk/client-lambda": "^3.345.0",
+    "pg": "^8.10.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.11",
+    "@types/pg": "^8.6.6",
+    "@types/uuid": "^9.0.1",
+    "typescript": "^5.0.4"
+  }
+}
