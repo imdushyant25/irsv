@@ -82,6 +82,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [rdsData, setRdsData] = useState<any>(null);
   const [papData, setPapData] = useState<any>(null);
   const [hansData, setHansData] = useState<any>(null);
+  const [maData, setMaData] = useState<any>(null);
+  const [cciData, setCciData] = useState<any>(null);
+  const [mcapData, setMcapData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
@@ -96,6 +99,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [rdsLoading, setRdsLoading] = useState(true);
   const [papLoading, setPapLoading] = useState(true);
   const [hansLoading, setHansLoading] = useState(true);
+  const [maLoading, setMaLoading] = useState(true);
+  const [cciLoading, setCciLoading] = useState(true);
+  const [mcapLoading, setMcapLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
@@ -110,6 +116,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [rdsError, setRdsError] = useState<string | null>(null);
   const [papError, setPapError] = useState<string | null>(null);
   const [hansError, setHansError] = useState<string | null>(null);
+  const [maError, setMaError] = useState<string | null>(null);
+  const [cciError, setCciError] = useState<string | null>(null);
+  const [mcapError, setMcapError] = useState<string | null>(null);
   
   const toast = useToast();
   
@@ -378,6 +387,130 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     }
   };
 
+  // Fetch Maintenance & Acute data
+  const fetchMaintenanceAcuteData = async () => {
+    setMaLoading(true);
+    setMaError(null);
+    
+    try {
+      // Use the savings endpoint with the fcMA category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcMA`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch Maintenance & Acute data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // The API might return null data with a success message
+      // This is normal if the analysis hasn't been run yet, so we don't throw an error
+      console.log('Maintenance & Acute data response:', result);
+      
+      // Store the data exactly as returned from the API (even if null)
+      setMaData(result.data);
+    } catch (error) {
+      console.error('Error fetching Maintenance & Acute data:', error);
+      setMaError(error instanceof Error ? error.message : 'Failed to load Maintenance & Acute data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load Maintenance & Acute data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setMaLoading(false);
+    }
+  };
+
+  // Fetch Weight Based data
+  const fetchWeightBasedData = async () => {
+    setCciLoading(true);
+    setCciError(null);
+    
+    try {
+      // Use the savings endpoint with the fcCCI category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcCCI`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch Weight Based data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // The API might return null data with a success message
+      // This is normal if the analysis hasn't been run yet, so we don't throw an error
+      console.log('Weight Based data response:', result);
+      
+      // Store the data exactly as returned from the API (even if null)
+      setCciData(result.data);
+    } catch (error) {
+      console.error('Error fetching Weight Based data:', error);
+      setCciError(error instanceof Error ? error.message : 'Failed to load Weight Based data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load Weight Based data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setCciLoading(false);
+    }
+  };
+
+  // Fetch MCAP data
+  const fetchMcapData = async () => {
+    setMcapLoading(true);
+    setMcapError(null);
+    
+    try {
+      // Use the savings endpoint with the fcMCAP category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcMCAP`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch MCAP data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // Print comprehensive debug information
+      console.log('MCAP data response:', result);
+      console.log('MCAP data structure:', JSON.stringify(result, null, 2));
+      
+      if (result.data) {
+        console.log('MCAP result.data:', JSON.stringify(result.data, null, 2));
+      }
+      
+      // Handle different API response structures
+      if (result.data && result.data.results) {
+        // If data is nested in results property
+        setMcapData(result.data.results);
+      } else if (result.data) {
+        // If data is directly in the data property
+        setMcapData(result.data);
+      } else {
+        // Fallback
+        setMcapData(result);
+      }
+    } catch (error) {
+      console.error('Error fetching MCAP data:', error);
+      setMcapError(error instanceof Error ? error.message : 'Failed to load MCAP data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load MCAP data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setMcapLoading(false);
+    }
+  };
+
   // Fetch initial data
   useEffect(() => {
     fetchPlanExclusionsData();
@@ -394,6 +527,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchRDSData();
     fetchPAPData();
     fetchHANSData();
+    fetchMaintenanceAcuteData();
+    fetchWeightBasedData();
+    fetchMcapData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -1751,6 +1887,310 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       </Card>
     );
   };
+
+  // Create Maintenance & Acute table
+  const renderMaintenanceAcuteTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering Maintenance & Acute table with data:", maData);
+    console.log("Maintenance & Acute loading state:", maLoading);
+    console.log("Maintenance & Acute error state:", maError);
+    
+    if (maLoading && !maData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Maintenance & Acute</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (maError && !maData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Maintenance & Acute</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load Maintenance & Acute data: {maError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Check if there is no data or if the data is empty
+    // Handle the case where API returns success but with null data
+    const hasNoData = !maData || 
+                      maData === null ||
+                      !maData.results || 
+                      maData.results === null ||
+                      (maData.results && 
+                       maData.results.length === 0);
+                      
+    if (hasNoData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Maintenance & Acute</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No Maintenance & Acute data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Getting the MA data from the API structure
+    const resultsData = maData.results || [];
+    
+    // Calculate totals for the footer row
+    const totalClaims = resultsData.reduce((sum: number, item: any) => sum + (parseInt(item.total_claims) || 0), 0);
+    const totalMembers = resultsData.reduce((sum: number, item: any) => sum + (parseInt(item.impacted_members) || 0), 0);
+    const totalPlanCost = resultsData.reduce((sum: number, item: any) => sum + (parseFloat(item.total_plan_cost) || 0), 0);
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Maintenance & Acute</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th>Medication Type</Th>
+                  <Th isNumeric>Total Claims</Th>
+                  <Th isNumeric>Impacted Members</Th>
+                  <Th isNumeric>Total Plan Cost</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {resultsData.map((category: any, index: number) => (
+                  <Tr key={index}>
+                    <Td fontWeight="medium">{category.medication_type}</Td>
+                    <Td isNumeric>{category.total_claims}</Td>
+                    <Td isNumeric>{category.impacted_members}</Td>
+                    <Td isNumeric>{formatCurrency(category.total_plan_cost)}</Td>
+                  </Tr>
+                ))}
+                <Tr fontWeight="bold" bg="gray.50">
+                  <Td>Total</Td>
+                  <Td isNumeric>{totalClaims}</Td>
+                  <Td isNumeric>{totalMembers}</Td>
+                  <Td isNumeric>{formatCurrency(totalPlanCost)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  // Create Weight Based table
+  const renderWeightBasedTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering Weight Based table with data:", cciData);
+    console.log("Weight Based loading state:", cciLoading);
+    console.log("Weight Based error state:", cciError);
+    
+    if (cciLoading && !cciData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Weight Based</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (cciError && !cciData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Weight Based</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load Weight Based data: {cciError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Check if there is no data or if the data is empty
+    // Handle the case where API returns success but with null data
+    const hasNoData = !cciData || 
+                      cciData === null ||
+                      !cciData.results || 
+                      cciData.results === null;
+                      
+    if (hasNoData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Weight Based</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No Weight Based data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Getting the CCI data from the API structure
+    const resultsData = cciData.results || {};
+    
+    // Extract values with safe defaults
+    const totalWeightClaims = resultsData.total_weight_claims || 0;
+    const totalCost = resultsData.total_cost || 0;
+    const impactedMembers = resultsData.impacted_members || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Weight Based</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Total Claims</Th>
+                  <Th isNumeric>Impacted Members</Th>
+                  <Th isNumeric>Total Cost</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{totalWeightClaims}</Td>
+                  <Td isNumeric>{impactedMembers}</Td>
+                  <Td isNumeric>{formatCurrency(totalCost)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  // Create MCAP table
+  const renderMcapTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering MCAP table with data:", mcapData);
+    console.log("MCAP loading state:", mcapLoading);
+    console.log("MCAP error state:", mcapError);
+    
+    if (mcapLoading && !mcapData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">MCAP</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (mcapError && !mcapData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">MCAP</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load MCAP data: {mcapError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the data from the nested structure that comes from the API
+    let resultsData;
+    
+    // Check for different possible data structures from the API
+    if (mcapData && mcapData.results) {
+      resultsData = mcapData.results;
+    } else if (mcapData) {
+      resultsData = mcapData;
+    } else {
+      // Handle no data case
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">MCAP</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No MCAP data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    console.log("MCAP resultsData:", resultsData);
+    
+    // Extract values with safe defaults
+    const memberCount = resultsData.member_count || 0;
+    const claimCount = resultsData.claim_count || 0;
+    const totalMcapSavings = resultsData.total_mcap_savings || 0;
+    const totalFees = resultsData.total_fees || 0;
+    const totalNetSavings = resultsData.total_net_savings || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">MCAP</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Claims</Th>
+                  <Th isNumeric>Members</Th>
+                  <Th isNumeric>Gross Savings</Th>
+                  <Th isNumeric>Fees (25%)</Th>
+                  <Th isNumeric>Net Savings (75%)</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{claimCount}</Td>
+                  <Td isNumeric>{memberCount}</Td>
+                  <Td isNumeric>{formatCurrency(totalMcapSavings)}</Td>
+                  <Td isNumeric>{formatCurrency(totalFees)}</Td>
+                  <Td isNumeric color="green.600">{formatCurrency(totalNetSavings)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
   
   // Create Prior Auth savings table
   const renderPriorAuthTable = () => {
@@ -2129,6 +2569,15 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
           
           {/* Hospital at Home Network Solutions (HANS) Table */}
           {renderHANSTable()}
+          
+          {/* Maintenance & Acute Table */}
+          {renderMaintenanceAcuteTable()}
+          
+          {/* Weight Based Table */}
+          {renderWeightBasedTable()}
+          
+          {/* MCAP Table */}
+          {renderMcapTable()}
         </>
       )}
     </VStack>

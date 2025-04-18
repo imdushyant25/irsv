@@ -310,38 +310,53 @@ enrichment_data AS (
         END as normalized_avg_rebate_per_DS,
         
         -- Member copay logic with proper casting
-CASE
-    WHEN dc.modeling_type = 'useClaimsFile' AND dc.member_cost IS NOT NULL THEN
-        CASE WHEN dc.member_cost::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.member_cost::numeric ELSE NULL END
-
-    WHEN dc.modeling_type = 'memberCopays' AND dc.drug_classification IS NOT NULL THEN
         CASE
-            WHEN dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification IS NULL 
-              OR dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification = '' THEN NULL::numeric
-            WHEN (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::text ~ '^-?\\d+(\\.\\d+)?$' 
-              THEN (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::numeric
-            ELSE NULL
-        END
+            WHEN dc.member_cost IS NOT NULL THEN
+                CASE 
+                    WHEN dc.member_cost::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.member_cost::numeric 
+                    ELSE NULL 
+                END
 
-    WHEN dc.modeling_type = 'memberCoinsurance' AND dc.drug_classification IS NOT NULL THEN
-        LEAST(
-            COALESCE(
-                CASE 
-                  WHEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::text ~ '^-?\\d+(\\.\\d+)?$' 
-                  THEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::numeric / 100.0
-                  ELSE NULL
-                END *
-                -- Inline reprice_gross_cost logic here:
-                CASE 
-                    WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
-                        CASE 
-                            WHEN dc.specialty_indicator = 'Y' THEN 
-                                (1 - COALESCE(CASE WHEN dc.awp_discount::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.awp_discount::numeric ELSE NULL END, 0)) * 
-                                (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
-                            ELSE 
-                                CASE 
-                                    WHEN dc.brnd_gnrc LIKE 'B%' AND 
-                                         CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 30 THEN 
+            WHEN dc.modeling_type = 'memberCopays' AND dc.drug_classification IS NOT NULL THEN
+                CASE
+                    WHEN dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification IS NULL 
+                        OR dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification = '' 
+                        THEN NULL::numeric
+                    WHEN (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::text ~ '^-?\\d+(\\.\\d+)?$' 
+                        THEN (dc.general_info->'copayModeling'->'memberCopays'->>dc.drug_classification)::numeric
+                    ELSE NULL
+                END
+
+            WHEN dc.modeling_type = 'memberCoinsurance' AND dc.drug_classification IS NOT NULL 
+                THEN
+                    LEAST(
+                        COALESCE(
+                            CASE 
+                                WHEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::text ~ '^-?\\d+(\\.\\d+)?$' 
+                                    THEN (dc.general_info->'copayModeling'->'memberCoinsurance'->dc.drug_classification->>'percentage')::numeric / 100.0
+                                ELSE NULL
+                            END 
+                            *
+                            -- Inline reprice_gross_cost logic here:
+                            CASE 
+                                WHEN awp.unit_price IS NOT NULL AND dc.quantity IS NOT NULL THEN
+                                    CASE 
+                                        WHEN dc.specialty_indicator = 'Y' THEN 
+                                            (1 - COALESCE(
+                                            CASE 
+                                                WHEN dc.awp_discount::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.awp_discount::numeric 
+                                                ELSE NULL 
+                                            END, 0
+                                            )) 
+                                            * (awp.unit_price * 
+                                                CASE 
+                                                    WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric 
+                                                    ELSE NULL 
+                                                END)
+                                        ELSE 
+                                            CASE 
+                                                WHEN dc.brnd_gnrc LIKE 'B%' AND 
+                                                    CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 30 THEN 
                                         (1 - 0.20) * (awp.unit_price * CASE WHEN dc.quantity::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.quantity::numeric ELSE NULL END)
                                     WHEN dc.brnd_gnrc LIKE 'G%' AND 
                                          CASE WHEN dc.days_supply::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.days_supply::numeric ELSE NULL END <= 30 THEN 

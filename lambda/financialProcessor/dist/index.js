@@ -33,14 +33,17 @@ const handler = async (event) => {
             await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
         }
         // Run all analyses in parallel
-        console.log('Starting HDHP, ACA, Rebate, RDS, PAP, and HANS analyses in parallel');
-        const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults] = await Promise.all([
+        console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, and MCAP analyses in parallel');
+        const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults] = await Promise.all([
             analyzeHdhpPreventive(client, fileId),
             analyzeAcaPreventive(client, fileId),
             analyzeRebateFinancial(client, fileId),
             analyzeRdsFinancial(client, fileId),
             analyzePapFinancial(client, fileId),
-            analyzeHansFinancial(client, fileId)
+            analyzeHansFinancial(client, fileId),
+            analyzeMaintenanceAcute(client, fileId),
+            analyzeWeightBased(client, fileId),
+            analyzeMcap(client, fileId)
         ]);
         // Save all results in parallel
         await Promise.all([
@@ -49,9 +52,12 @@ const handler = async (event) => {
             saveResultsToDatabase(client, fileId, 'fcRebate', rebateResults),
             saveResultsToDatabase(client, fileId, 'fcRDS', rdsResults),
             saveResultsToDatabase(client, fileId, 'fcPAP', papResults),
-            saveResultsToDatabase(client, fileId, 'fcHANS', hansResults)
+            saveResultsToDatabase(client, fileId, 'fcHANS', hansResults),
+            saveResultsToDatabase(client, fileId, 'fcMA', maResults),
+            saveResultsToDatabase(client, fileId, 'fcCCI', cciResults),
+            saveResultsToDatabase(client, fileId, 'fcMCAP', mcapResults)
         ]);
-        console.log('HDHP, ACA, Rebate, RDS, PAP, and HANS analyses completed and saved in parallel');
+        console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, and MCAP analyses completed and saved in parallel');
         return {
             statusCode: 200,
             body: {
@@ -63,7 +69,10 @@ const handler = async (event) => {
                 rebateResults,
                 rdsResults,
                 papResults,
-                hansResults
+                hansResults,
+                maResults,
+                cciResults,
+                mcapResults
             }
         };
     }
@@ -397,6 +406,151 @@ async function analyzeHansFinancial(client, fileId) {
     }
     catch (error) {
         console.error('Error during HANS financial analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze Maintenance and Acute Medication distribution
+ */
+async function analyzeMaintenanceAcute(client, fileId) {
+    const query = `
+    WITH base_claims AS (
+      SELECT
+        cr.record_id,
+        cr.mapped_fields->>'member_id' AS member_id,
+        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        CASE 
+          WHEN mni.mspan_maint_drug_code = 'Y' THEN 'Maintenance'
+          ELSE 'Acute'
+        END AS medication_type
+      FROM claim_records cr
+      JOIN mspan_ndc_info mni
+        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = mni.ndc11
+      WHERE cr.file_id = $1
+    ),
+    aggregated AS (
+      SELECT
+        medication_type,
+        COUNT(*) AS total_claims,
+        COUNT(DISTINCT member_id) AS impacted_members,
+        ROUND(SUM(plan_cost), 2) AS total_plan_cost
+      FROM base_claims
+      GROUP BY medication_type
+    )
+    SELECT json_agg(
+      json_build_object(
+        'medication_type', medication_type,
+        'total_claims', total_claims,
+        'impacted_members', impacted_members,
+        'total_plan_cost', total_plan_cost
+      )
+    ) AS maintenance_acute_summary
+    FROM aggregated;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        return result.rows[0]?.maintenance_acute_summary || [];
+    }
+    catch (error) {
+        console.error('Error during maintenance/acute analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze Weight Based claims
+ */
+async function analyzeWeightBased(client, fileId) {
+    const query = `
+    WITH weight_claims AS (
+      SELECT 
+        cr.record_id,
+        LPAD(cr.lookup_fields->>'ndc11', 11, '0') AS ndc11,
+        (cr.mapped_fields->>'plan_cost')::numeric AS plan_cost,
+        cr.mapped_fields->>'member_id' AS member_id
+      FROM claim_records cr
+      JOIN cci_weight_based cci 
+        ON cci.ndc11 = LPAD(cr.lookup_fields->>'ndc11', 11, '0')
+      WHERE cr.file_id = $1
+    ),
+    summary AS (
+      SELECT 
+        COUNT(*) AS total_weight_claims,
+        SUM(plan_cost) AS total_cost,
+        COUNT(DISTINCT member_id) AS impacted_members
+      FROM weight_claims
+    )
+    SELECT row_to_json(summary) AS result FROM summary;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        return result.rows[0]?.result || { total_weight_claims: 0, total_cost: 0, impacted_members: 0 };
+    }
+    catch (error) {
+        console.error('Error during weight based analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze MCAP claims
+ */
+async function analyzeMcap(client, fileId) {
+    const query = `
+    WITH mcap_claims AS (
+      SELECT
+        cr.record_id,
+        cr.file_id,
+        cr.mapped_fields->>'member_id' AS member_id,
+        (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
+        (cr.lookup_fields->>'member_copay')::numeric AS member_copay,
+        LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
+        dm.map_offset_per_ds::numeric AS map_offset_per_ds,
+        (dm.map_offset_per_ds::numeric * (cr.lookup_fields->>'days_supply')::numeric) 
+            - (cr.lookup_fields->>'member_copay')::numeric AS mcap_savings
+      FROM claim_records cr
+      JOIN drugs_master dm ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+      WHERE cr.lookup_fields->>'mcap' = 'Y'
+        AND cr.file_id = $1
+    ),
+    savings_with_fees AS (
+      SELECT
+        member_id,
+        record_id,
+        ndc11,
+        mcap_savings,
+        ROUND(mcap_savings * 0.25, 2) AS fees,
+        ROUND(mcap_savings * 0.75, 2) AS net_savings
+      FROM mcap_claims
+    ),
+    summary AS (
+      SELECT
+        COUNT(DISTINCT member_id) AS member_count,
+        COUNT(*) AS claim_count,
+        ROUND(SUM(mcap_savings), 2) AS total_mcap_savings,
+        ROUND(SUM(fees), 2) AS total_fees,
+        ROUND(SUM(net_savings), 2) AS total_net_savings
+      FROM savings_with_fees
+    )
+    SELECT jsonb_build_object(
+      'member_count', member_count,
+      'claim_count', claim_count,
+      'total_mcap_savings', total_mcap_savings,
+      'total_fees', total_fees,
+      'total_net_savings', total_net_savings
+    ) AS result_json
+    FROM summary;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        return result.rows[0]?.result_json || {
+            member_count: 0,
+            claim_count: 0,
+            total_mcap_savings: null,
+            total_fees: null,
+            total_net_savings: null
+        };
+    }
+    catch (error) {
+        console.error('Error during MCAP analysis:', error);
         throw error;
     }
 }
