@@ -85,6 +85,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [maData, setMaData] = useState<any>(null);
   const [cciData, setCciData] = useState<any>(null);
   const [mcapData, setMcapData] = useState<any>(null);
+  const [idsData, setIdsData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
@@ -102,6 +103,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [maLoading, setMaLoading] = useState(true);
   const [cciLoading, setCciLoading] = useState(true);
   const [mcapLoading, setMcapLoading] = useState(true);
+  const [idsLoading, setIdsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
@@ -119,6 +121,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [maError, setMaError] = useState<string | null>(null);
   const [cciError, setCciError] = useState<string | null>(null);
   const [mcapError, setMcapError] = useState<string | null>(null);
+  const [idsError, setIdsError] = useState<string | null>(null);
   
   const toast = useToast();
   
@@ -511,6 +514,56 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     }
   };
 
+  // Fetch IDS data
+  const fetchIdsData = async () => {
+    setIdsLoading(true);
+    setIdsError(null);
+    
+    try {
+      // Use the savings endpoint with the fcIDS category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcIDS`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch IDS data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // Print comprehensive debug information
+      console.log('IDS data response:', result);
+      console.log('IDS data structure:', JSON.stringify(result, null, 2));
+      
+      if (result.data) {
+        console.log('IDS result.data:', JSON.stringify(result.data, null, 2));
+      }
+      
+      // Handle different API response structures
+      if (result.data && result.data.results) {
+        // If data is nested in results property
+        setIdsData(result.data.results);
+      } else if (result.data) {
+        // If data is directly in the data property
+        setIdsData(result.data);
+      } else {
+        // Fallback
+        setIdsData(result);
+      }
+    } catch (error) {
+      console.error('Error fetching IDS data:', error);
+      setIdsError(error instanceof Error ? error.message : 'Failed to load IDS data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load IDS data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIdsLoading(false);
+    }
+  };
+
   // Fetch initial data
   useEffect(() => {
     fetchPlanExclusionsData();
@@ -530,6 +583,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchMaintenanceAcuteData();
     fetchWeightBasedData();
     fetchMcapData();
+    fetchIdsData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -2191,6 +2245,108 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       </Card>
     );
   };
+
+  // Create IDS table
+  const renderIdsTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering IDS table with data:", idsData);
+    console.log("IDS loading state:", idsLoading);
+    console.log("IDS error state:", idsError);
+    
+    if (idsLoading && !idsData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">IDS</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (idsError && !idsData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">IDS</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load IDS data: {idsError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the data from the nested structure that comes from the API
+    let resultsData;
+    
+    // Check for different possible data structures from the API
+    if (idsData && idsData.results) {
+      resultsData = idsData.results;
+    } else if (idsData) {
+      resultsData = idsData;
+    } else {
+      // Handle no data case
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">IDS</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No IDS data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    console.log("IDS resultsData:", resultsData);
+    
+    // Extract values with safe defaults
+    const memberCount = resultsData.member_count || 0;
+    const claimCount = resultsData.claim_count || 0;
+    const totalIrxLessMap = resultsData.total_irx_less_map || 0;
+    const totalRxmanageCost = resultsData.total_rxmanage_cost || 0;
+    const totalSavings = resultsData.total_savings || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">IDS</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Claims</Th>
+                  <Th isNumeric>Members</Th>
+                  <Th isNumeric>IRx Less MAP</Th>
+                  <Th isNumeric>RxManage Cost</Th>
+                  <Th isNumeric>Savings</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{claimCount}</Td>
+                  <Td isNumeric>{memberCount}</Td>
+                  <Td isNumeric>{formatCurrency(totalIrxLessMap)}</Td>
+                  <Td isNumeric>{formatCurrency(totalRxmanageCost)}</Td>
+                  <Td isNumeric color="green.600">{formatCurrency(totalSavings)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
   
   // Create Prior Auth savings table
   const renderPriorAuthTable = () => {
@@ -2578,6 +2734,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
           
           {/* MCAP Table */}
           {renderMcapTable()}
+          
+          {/* IDS Table */}
+          {renderIdsTable()}
         </>
       )}
     </VStack>

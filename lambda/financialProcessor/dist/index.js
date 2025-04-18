@@ -33,8 +33,8 @@ const handler = async (event) => {
             await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
         }
         // Run all analyses in parallel
-        console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, and MCAP analyses in parallel');
-        const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults] = await Promise.all([
+        console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, and IDS analyses in parallel');
+        const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults, idsResults] = await Promise.all([
             analyzeHdhpPreventive(client, fileId),
             analyzeAcaPreventive(client, fileId),
             analyzeRebateFinancial(client, fileId),
@@ -43,7 +43,8 @@ const handler = async (event) => {
             analyzeHansFinancial(client, fileId),
             analyzeMaintenanceAcute(client, fileId),
             analyzeWeightBased(client, fileId),
-            analyzeMcap(client, fileId)
+            analyzeMcap(client, fileId),
+            analyzeIds(client, fileId)
         ]);
         // Save all results in parallel
         await Promise.all([
@@ -55,9 +56,10 @@ const handler = async (event) => {
             saveResultsToDatabase(client, fileId, 'fcHANS', hansResults),
             saveResultsToDatabase(client, fileId, 'fcMA', maResults),
             saveResultsToDatabase(client, fileId, 'fcCCI', cciResults),
-            saveResultsToDatabase(client, fileId, 'fcMCAP', mcapResults)
+            saveResultsToDatabase(client, fileId, 'fcMCAP', mcapResults),
+            saveResultsToDatabase(client, fileId, 'fcIDS', idsResults)
         ]);
-        console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, and MCAP analyses completed and saved in parallel');
+        console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, and IDS analyses completed and saved in parallel');
         return {
             statusCode: 200,
             body: {
@@ -72,7 +74,8 @@ const handler = async (event) => {
                 hansResults,
                 maResults,
                 cciResults,
-                mcapResults
+                mcapResults,
+                idsResults
             }
         };
     }
@@ -551,6 +554,78 @@ async function analyzeMcap(client, fileId) {
     }
     catch (error) {
         console.error('Error during MCAP analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze IDS claims
+ */
+async function analyzeIds(client, fileId) {
+    const query = `
+    WITH ids_claims AS (
+      SELECT
+        cr.record_id,
+        cr.file_id,
+        cr.mapped_fields->>'member_id' AS member_id,
+        (cr.lookup_fields->>'reprice_gross_cost')::numeric AS reprice_gross_cost,
+        (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
+        (cr.lookup_fields->>'quantity')::numeric AS quantity,
+        LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
+        dm.map_offset_per_ds::numeric AS map_offset_per_ds,
+        dm.rxmanage_cost_per_qty::numeric AS rxmanage_cost_per_qty,
+
+        -- Reprice minus MAP
+        (cr.lookup_fields->>'reprice_gross_cost')::numeric 
+          - (dm.map_offset_per_ds::numeric * (cr.lookup_fields->>'days_supply')::numeric) AS irx_less_map,
+
+        -- RxManage Cost
+        (dm.rxmanage_cost_per_qty::numeric * (cr.lookup_fields->>'quantity')::numeric) AS rxmanage_cost
+
+      FROM claim_records cr
+      JOIN drugs_master dm ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+      WHERE cr.lookup_fields->>'ids' = 'Y'
+        AND cr.lookup_fields->>'is_in_formulary' = 'Y'
+        AND cr.file_id = $1
+    ),
+    savings_calc AS (
+      SELECT
+        record_id,
+        member_id,
+        irx_less_map,
+        rxmanage_cost,
+        ROUND(irx_less_map - rxmanage_cost, 2) AS savings
+      FROM ids_claims
+    ),
+    summary AS (
+      SELECT
+        COUNT(*) AS claim_count,
+        COUNT(DISTINCT member_id) AS member_count,
+        ROUND(SUM(irx_less_map), 2) AS total_irx_less_map,
+        ROUND(SUM(rxmanage_cost), 2) AS total_rxmanage_cost,
+        ROUND(SUM(savings), 2) AS total_savings
+      FROM savings_calc
+    )
+    SELECT jsonb_build_object(
+      'claim_count', claim_count,
+      'member_count', member_count,
+      'total_irx_less_map', total_irx_less_map,
+      'total_rxmanage_cost', total_rxmanage_cost,
+      'total_savings', total_savings
+    ) AS result_json
+    FROM summary;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        return result.rows[0]?.result_json || {
+            claim_count: 0,
+            member_count: 0,
+            total_irx_less_map: null,
+            total_rxmanage_cost: null,
+            total_savings: null
+        };
+    }
+    catch (error) {
+        console.error('Error during IDS analysis:', error);
         throw error;
     }
 }
