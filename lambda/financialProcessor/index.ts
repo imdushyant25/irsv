@@ -38,8 +38,8 @@ export const handler = async (event: any) => {
     }
 
     // Run all analyses in parallel
-    console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, and IDS analyses in parallel');
-    const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults, idsResults] = await Promise.all([
+    console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, and SPP analyses in parallel');
+    const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults, idsResults, sppResults] = await Promise.all([
       analyzeHdhpPreventive(client, fileId),
       analyzeAcaPreventive(client, fileId),
       analyzeRebateFinancial(client, fileId),
@@ -49,7 +49,8 @@ export const handler = async (event: any) => {
       analyzeMaintenanceAcute(client, fileId),
       analyzeWeightBased(client, fileId),
       analyzeMcap(client, fileId),
-      analyzeIds(client, fileId)
+      analyzeIds(client, fileId),
+      analyzeParityPricing(client, fileId)
     ]);
     
     // Save all results in parallel
@@ -63,10 +64,11 @@ export const handler = async (event: any) => {
       saveResultsToDatabase(client, fileId, 'fcMA', maResults),
       saveResultsToDatabase(client, fileId, 'fcCCI', cciResults),
       saveResultsToDatabase(client, fileId, 'fcMCAP', mcapResults),
-      saveResultsToDatabase(client, fileId, 'fcIDS', idsResults)
+      saveResultsToDatabase(client, fileId, 'fcIDS', idsResults),
+      saveResultsToDatabase(client, fileId, 'fcSPP', sppResults)
     ]);
     
-    console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, and IDS analyses completed and saved in parallel');
+    console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, and SPP analyses completed and saved in parallel');
 
     return {
       statusCode: 200,
@@ -83,7 +85,8 @@ export const handler = async (event: any) => {
       maResults,
       cciResults,
       mcapResults,
-      idsResults
+      idsResults,
+      sppResults
       }
     };
   } catch (error) {
@@ -113,7 +116,7 @@ async function analyzeHdhpPreventive(client: Client, fileId: string) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
         cr.mapped_fields->>'preventive_drug' = 'true' AS is_preventive,
         dm.is_hdhp = 'Y' AS is_on_hdhd_list
@@ -171,7 +174,7 @@ async function analyzeAcaPreventive(client: Client, fileId: string) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
         cr.mapped_fields->>'preventive_drug' = 'true' AS is_preventive,
         dm.is_aca = 'Y' AS is_on_aca_list
@@ -229,7 +232,7 @@ async function analyzeRebateFinancial(client: Client, fileId: string) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         dm.is_rebate_elig = 'Y' AS is_rebate_eligible
       FROM claim_records cr
       JOIN drugs_master dm
@@ -271,7 +274,7 @@ async function analyzeRdsFinancial(client: Client, fileId: string) {
     WITH rds_candidates AS (
       SELECT
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost
       FROM claim_records cr
       WHERE cr.file_id = $1
         AND COALESCE((cr.dynamic_fields->'ageEnrichment'->>'ageAtFillDate')::int, 0) >= 65
@@ -380,8 +383,8 @@ async function analyzeHansFinancial(client: Client, fileId: string) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
-        COALESCE((cr.mapped_fields->>'quantity')::numeric, 0) AS quantity,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'quantity')::numeric, 0) AS quantity,
         COALESCE(dm.hans_unit_cost::numeric, 0) AS hans_unit_cost
       FROM claim_records cr
       JOIN drugs_master dm
@@ -432,7 +435,7 @@ async function analyzeMaintenanceAcute(client: Client, fileId: string) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         CASE 
           WHEN mni.mspan_maint_drug_code = 'Y' THEN 'Maintenance'
           ELSE 'Acute'
@@ -480,7 +483,7 @@ async function analyzeWeightBased(client: Client, fileId: string) {
       SELECT 
         cr.record_id,
         LPAD(cr.lookup_fields->>'ndc11', 11, '0') AS ndc11,
-        (cr.mapped_fields->>'plan_cost')::numeric AS plan_cost,
+        (cr.lookup_fields->>'reprice_plan_cost')::numeric AS plan_cost,
         cr.mapped_fields->>'member_id' AS member_id
       FROM claim_records cr
       JOIN cci_weight_based cci 
@@ -692,6 +695,35 @@ async function saveResultsToDatabase(client: Client, fileId: string, category: s
     console.log(`Results saved to savings_results table for file ${fileId}, category: ${category}`);
   } catch (error) {
     console.error('Error saving results to database:', error);
+    throw error;
+  }
+}
+
+/**
+ * Analyze Parity Pricing claims
+ */
+async function analyzeParityPricing(client: Client, fileId: string) {
+  const query = `
+    SELECT jsonb_build_object(
+        'total_exposure', SUM((cr.lookup_fields->>'reprice_plan_cost')::numeric),
+        'parity_claim_count', COUNT(*),
+        'impacted_members', COUNT(DISTINCT cr.mapped_fields->>'member_id')
+    ) AS parity_priced_summary
+    FROM claim_records cr
+    JOIN cci_parity_priced cpp
+        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = cpp.ndc11
+    WHERE cr.file_id = $1;
+  `;
+
+  try {
+    const result = await client.query(query, [fileId]);
+    return result.rows[0]?.parity_priced_summary || {
+      total_exposure: null,
+      impacted_members: 0,
+      parity_claim_count: 0
+    };
+  } catch (error) {
+    console.error('Error during parity pricing analysis:', error);
     throw error;
   }
 }

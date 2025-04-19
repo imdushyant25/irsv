@@ -86,6 +86,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [cciData, setCciData] = useState<any>(null);
   const [mcapData, setMcapData] = useState<any>(null);
   const [idsData, setIdsData] = useState<any>(null);
+  const [sppData, setSppData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
@@ -104,6 +105,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [cciLoading, setCciLoading] = useState(true);
   const [mcapLoading, setMcapLoading] = useState(true);
   const [idsLoading, setIdsLoading] = useState(true);
+  const [sppLoading, setSppLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
@@ -122,6 +124,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [cciError, setCciError] = useState<string | null>(null);
   const [mcapError, setMcapError] = useState<string | null>(null);
   const [idsError, setIdsError] = useState<string | null>(null);
+  const [sppError, setSppError] = useState<string | null>(null);
   
   const toast = useToast();
   
@@ -513,6 +516,56 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       setMcapLoading(false);
     }
   };
+  
+  // Fetch SPP Parity Pricing data
+  const fetchSppData = async () => {
+    setSppLoading(true);
+    setSppError(null);
+    
+    try {
+      // Use the savings endpoint with the fcSPP category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcSPP`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch Parity Pricing data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // Print comprehensive debug information
+      console.log('Parity Pricing data response:', result);
+      console.log('Parity Pricing data structure:', JSON.stringify(result, null, 2));
+      
+      if (result.data) {
+        console.log('Parity Pricing result.data:', JSON.stringify(result.data, null, 2));
+      }
+      
+      // Handle different API response structures
+      if (result.data && result.data.results) {
+        // If data is nested in results property
+        setSppData(result.data.results);
+      } else if (result.data) {
+        // If data is directly in the data property
+        setSppData(result.data);
+      } else {
+        // Fallback
+        setSppData(result);
+      }
+    } catch (error) {
+      console.error('Error fetching Parity Pricing data:', error);
+      setSppError(error instanceof Error ? error.message : 'Failed to load Parity Pricing data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load Parity Pricing data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setSppLoading(false);
+    }
+  };
 
   // Fetch IDS data
   const fetchIdsData = async () => {
@@ -584,6 +637,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchWeightBasedData();
     fetchMcapData();
     fetchIdsData();
+    fetchSppData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -2348,6 +2402,102 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   };
   
+  // Create Parity Pricing table
+  const renderSppParityTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering Parity Pricing table with data:", sppData);
+    console.log("Parity Pricing loading state:", sppLoading);
+    console.log("Parity Pricing error state:", sppError);
+    
+    if (sppLoading && !sppData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Parity Pricing</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (sppError && !sppData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Parity Pricing</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load Parity Pricing data: {sppError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the data from the nested structure that comes from the API
+    let resultsData;
+    
+    // Check for different possible data structures from the API
+    if (sppData && sppData.results) {
+      resultsData = sppData.results;
+    } else if (sppData) {
+      resultsData = sppData;
+    } else {
+      // Handle no data case
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">Parity Pricing</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No Parity Pricing data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    console.log("Parity Pricing resultsData:", resultsData);
+    
+    // Extract values with safe defaults
+    const impactedMembers = resultsData.impacted_members || 0;
+    const parityClaimCount = resultsData.parity_claim_count || 0;
+    const totalExposure = resultsData.total_exposure || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">Parity Pricing</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Total Claims</Th>
+                  <Th isNumeric>Impacted Members</Th>
+                  <Th isNumeric>Total Exposure</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{parityClaimCount}</Td>
+                  <Td isNumeric>{impactedMembers}</Td>
+                  <Td isNumeric>{formatCurrency(totalExposure)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
   // Create Prior Auth savings table
   const renderPriorAuthTable = () => {
     if (priorAuthLoading && !priorAuthData) {
@@ -2737,6 +2887,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
           
           {/* IDS Table */}
           {renderIdsTable()}
+          
+          {/* Parity Pricing Table */}
+          {renderSppParityTable()}
         </>
       )}
     </VStack>

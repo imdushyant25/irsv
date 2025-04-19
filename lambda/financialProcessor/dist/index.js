@@ -108,7 +108,7 @@ async function analyzeHdhpPreventive(client, fileId) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
         cr.mapped_fields->>'preventive_drug' = 'true' AS is_preventive,
         dm.is_hdhp = 'Y' AS is_on_hdhd_list
@@ -165,7 +165,7 @@ async function analyzeAcaPreventive(client, fileId) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
         cr.mapped_fields->>'preventive_drug' = 'true' AS is_preventive,
         dm.is_aca = 'Y' AS is_on_aca_list
@@ -222,7 +222,7 @@ async function analyzeRebateFinancial(client, fileId) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         dm.is_rebate_elig = 'Y' AS is_rebate_eligible
       FROM claim_records cr
       JOIN drugs_master dm
@@ -263,7 +263,7 @@ async function analyzeRdsFinancial(client, fileId) {
     WITH rds_candidates AS (
       SELECT
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost
       FROM claim_records cr
       WHERE cr.file_id = $1
         AND COALESCE((cr.dynamic_fields->'ageEnrichment'->>'ageAtFillDate')::int, 0) >= 65
@@ -371,8 +371,8 @@ async function analyzeHansFinancial(client, fileId) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
-        COALESCE((cr.mapped_fields->>'quantity')::numeric, 0) AS quantity,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'quantity')::numeric, 0) AS quantity,
         COALESCE(dm.hans_unit_cost::numeric, 0) AS hans_unit_cost
       FROM claim_records cr
       JOIN drugs_master dm
@@ -421,7 +421,7 @@ async function analyzeMaintenanceAcute(client, fileId) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
         CASE 
           WHEN mni.mspan_maint_drug_code = 'Y' THEN 'Maintenance'
           ELSE 'Acute'
@@ -468,7 +468,7 @@ async function analyzeWeightBased(client, fileId) {
       SELECT 
         cr.record_id,
         LPAD(cr.lookup_fields->>'ndc11', 11, '0') AS ndc11,
-        (cr.mapped_fields->>'plan_cost')::numeric AS plan_cost,
+        (cr.lookup_fields->>'reprice_plan_cost')::numeric AS plan_cost,
         cr.mapped_fields->>'member_id' AS member_id
       FROM claim_records cr
       JOIN cci_weight_based cci 
