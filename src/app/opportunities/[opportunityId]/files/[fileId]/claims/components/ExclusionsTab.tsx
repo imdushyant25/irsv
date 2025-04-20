@@ -87,6 +87,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [mcapData, setMcapData] = useState<any>(null);
   const [idsData, setIdsData] = useState<any>(null);
   const [sppData, setSppData] = useState<any>(null);
+  const [dawData, setDawData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formularyLoading, setFormularyLoading] = useState(true);
   const [weightLossLoading, setWeightLossLoading] = useState(true);
@@ -106,6 +107,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [mcapLoading, setMcapLoading] = useState(true);
   const [idsLoading, setIdsLoading] = useState(true);
   const [sppLoading, setSppLoading] = useState(true);
+  const [dawLoading, setDawLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formularyError, setFormularyError] = useState<string | null>(null);
   const [weightLossError, setWeightLossError] = useState<string | null>(null);
@@ -125,6 +127,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
   const [mcapError, setMcapError] = useState<string | null>(null);
   const [idsError, setIdsError] = useState<string | null>(null);
   const [sppError, setSppError] = useState<string | null>(null);
+  const [dawError, setDawError] = useState<string | null>(null);
   
   const toast = useToast();
   
@@ -566,6 +569,56 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
       setSppLoading(false);
     }
   };
+  
+  // Fetch DAW Penalties data
+  const fetchDawData = async () => {
+    setDawLoading(true);
+    setDawError(null);
+    
+    try {
+      // Use the savings endpoint with the fcDAW category
+      const response = await fetch(`/api/files/${fileId}/savings?category=fcDAW`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch DAW Penalties data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // Print comprehensive debug information
+      console.log('DAW Penalties data response:', result);
+      console.log('DAW Penalties data structure:', JSON.stringify(result, null, 2));
+      
+      if (result.data) {
+        console.log('DAW Penalties result.data:', JSON.stringify(result.data, null, 2));
+      }
+      
+      // Handle different API response structures
+      if (result.data && result.data.results) {
+        // If data is nested in results property
+        setDawData(result.data.results);
+      } else if (result.data) {
+        // If data is directly in the data property
+        setDawData(result.data);
+      } else {
+        // Fallback
+        setDawData(result);
+      }
+    } catch (error) {
+      console.error('Error fetching DAW Penalties data:', error);
+      setDawError(error instanceof Error ? error.message : 'Failed to load DAW Penalties data');
+      
+      toast({
+        title: 'Error',
+        description: 'Failed to load DAW Penalties data',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setDawLoading(false);
+    }
+  };
 
   // Fetch IDS data
   const fetchIdsData = async () => {
@@ -638,6 +691,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     fetchMcapData();
     fetchIdsData();
     fetchSppData();
+    fetchDawData();
   }, [fileId]);
 
   // Calculate totals for a category group - supporting both old and new property names
@@ -2498,6 +2552,102 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
     );
   };
   
+  // Create DAW Penalties table
+  const renderDawPenaltiesTable = () => {
+    // Add debug logging to help diagnose issues
+    console.log("Rendering DAW Penalties table with data:", dawData);
+    console.log("DAW Penalties loading state:", dawLoading);
+    console.log("DAW Penalties error state:", dawError);
+    
+    if (dawLoading && !dawData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">DAW Penalties</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Box display="flex" justifyContent="center" p={4}>
+              <Spinner size="md" />
+            </Box>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    if (dawError && !dawData) {
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">DAW Penalties</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Alert status="error" variant="subtle">
+              <AlertIcon />
+              <Text>Failed to load DAW Penalties data: {dawError}</Text>
+            </Alert>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    // Extract the data from the nested structure that comes from the API
+    let resultsData;
+    
+    // Check for different possible data structures from the API
+    if (dawData && dawData.results) {
+      resultsData = dawData.results;
+    } else if (dawData) {
+      resultsData = dawData;
+    } else {
+      // Handle no data case
+      return (
+        <Card variant="outline" mb={4}>
+          <CardHeader px={6} py={4}>
+            <Heading size="md">DAW Penalties</Heading>
+          </CardHeader>
+          <CardBody px={6} pt={0} pb={4}>
+            <Text p={4} textAlign="center">No DAW Penalties data found. Savings analysis has not yet been run or no eligible claims were found.</Text>
+          </CardBody>
+        </Card>
+      );
+    }
+    
+    console.log("DAW Penalties resultsData:", resultsData);
+    
+    // Extract values with safe defaults
+    const impactedMembers = resultsData.impacted_members || 0;
+    const totalDawClaims = resultsData.total_daw_claims || 0;
+    const totalDawSavings = resultsData.total_daw_savings || 0;
+    
+    return (
+      <Card variant="outline" mb={4}>
+        <CardHeader px={6} py={4}>
+          <Heading size="md">DAW Penalties</Heading>
+        </CardHeader>
+        <CardBody px={6} pt={0} pb={4}>
+          <Box overflowX="auto">
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr bg="gray.50">
+                  <Th isNumeric>Total Claims</Th>
+                  <Th isNumeric>Impacted Members</Th>
+                  <Th isNumeric>Total Savings</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                <Tr>
+                  <Td isNumeric>{totalDawClaims}</Td>
+                  <Td isNumeric>{impactedMembers}</Td>
+                  <Td isNumeric color="green.600">{formatCurrency(totalDawSavings)}</Td>
+                </Tr>
+              </Tbody>
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+  
   // Create Prior Auth savings table
   const renderPriorAuthTable = () => {
     if (priorAuthLoading && !priorAuthData) {
@@ -2890,6 +3040,9 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
           
           {/* Parity Pricing Table */}
           {renderSppParityTable()}
+          
+          {/* DAW Penalties Table */}
+          {renderDawPenaltiesTable()}
         </>
       )}
     </VStack>

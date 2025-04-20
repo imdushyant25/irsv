@@ -208,6 +208,11 @@ export function IncumbentRebates({ value, onChange }: IncumbentRebatesProps) {
                 </FormControl>
               </VStack>
             )}
+            
+            {/* Option 4: No rebates available */}
+            <Radio value="noRebates">
+              No rebates available for Incumbent
+            </Radio>
           </Stack>
         </RadioGroup>
       </FormControl>

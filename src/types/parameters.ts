@@ -4,7 +4,7 @@ export interface FormularyParameters {
     formulary: string;
   }
 
-  export type RebateType = 'useFromClaims' | 'perClaim' | 'lumpSum';
+  export type RebateType = 'useFromClaims' | 'perClaim' | 'lumpSum' | 'noRebates';
 
   export interface PerClaimRebates {
     nonSpecialtyBrand30DS: string;

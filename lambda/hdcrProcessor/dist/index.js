@@ -80,7 +80,7 @@ async function analyzeHdcrSavings(client, fileId) {
       LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brand_generic_flag,
       COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
       COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
-      COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+      COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) AS plan_cost,
       cr.mapped_fields->>'member_id' AS member_id
     FROM claim_records cr
     WHERE cr.file_id = $1

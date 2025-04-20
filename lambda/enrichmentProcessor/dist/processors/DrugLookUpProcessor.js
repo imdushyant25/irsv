@@ -380,7 +380,14 @@ enrichment_data AS (
         )
         
     ELSE NULL::numeric
-END AS member_copay    FROM drug_classification_cte dc
+END AS member_copay,
+-- DAW Penalty logic
+CASE 
+    WHEN ndc.mspan_multi_source_code IN ('O', 'Y') AND dc.brnd_gnrc LIKE 'B%' 
+    THEN 'Y'
+    ELSE 'N'
+END AS daw_penalty
+FROM drug_classification_cte dc
     LEFT JOIN edpm.mspan_awp_info awp ON 
         awp.ndc11 = dc.ndc11 AND 
         (CASE WHEN dc.fill_date ~ '^\\d{4}-\\d{2}-\\d{2}' THEN dc.fill_date::date ELSE NULL END 
@@ -490,7 +497,8 @@ final_enrichment AS (
                 reprice_plan_cost - (normalized_avg_rebate_per_DS * days_supply)
             ELSE
                 reprice_plan_cost
-        END as reprice_net_plan_cost
+        END as reprice_net_plan_cost,
+        daw_penalty
     FROM enrichment_data_with_plan_cost
 ),
 complete_enrichment AS (
@@ -543,7 +551,8 @@ complete_enrichment AS (
         normalized_avg_rebate_per_DS as avg_rebate_per_DS,
         specialty_indicator,
         brnd_gnrc,
-        reprice_net_plan_cost
+        reprice_net_plan_cost,
+        daw_penalty
     FROM final_enrichment
 )
 UPDATE edpm.claim_records cr
@@ -595,7 +604,8 @@ SET
         'fl_mcap', ce.o_mcap,
         'is_closed_formulary', ce.is_closed_formulary,
         'is_open_formulary', ce.is_open_formulary,
-        'formulary', ce.formulary
+        'formulary', ce.formulary,
+        'daw_penalty', ce.daw_penalty
         ),
     updated_at = CURRENT_TIMESTAMP,
     updated_by = 'lambda-enrichment'

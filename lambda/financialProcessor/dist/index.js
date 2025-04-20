@@ -33,8 +33,8 @@ const handler = async (event) => {
             await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
         }
         // Run all analyses in parallel
-        console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, and IDS analyses in parallel');
-        const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults, idsResults] = await Promise.all([
+        console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, SPP, and DAW analyses in parallel');
+        const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults, idsResults, sppResults, dawResults] = await Promise.all([
             analyzeHdhpPreventive(client, fileId),
             analyzeAcaPreventive(client, fileId),
             analyzeRebateFinancial(client, fileId),
@@ -44,7 +44,9 @@ const handler = async (event) => {
             analyzeMaintenanceAcute(client, fileId),
             analyzeWeightBased(client, fileId),
             analyzeMcap(client, fileId),
-            analyzeIds(client, fileId)
+            analyzeIds(client, fileId),
+            analyzeParityPricing(client, fileId),
+            analyzeDawPenalties(client, fileId)
         ]);
         // Save all results in parallel
         await Promise.all([
@@ -57,9 +59,11 @@ const handler = async (event) => {
             saveResultsToDatabase(client, fileId, 'fcMA', maResults),
             saveResultsToDatabase(client, fileId, 'fcCCI', cciResults),
             saveResultsToDatabase(client, fileId, 'fcMCAP', mcapResults),
-            saveResultsToDatabase(client, fileId, 'fcIDS', idsResults)
+            saveResultsToDatabase(client, fileId, 'fcIDS', idsResults),
+            saveResultsToDatabase(client, fileId, 'fcSPP', sppResults),
+            saveResultsToDatabase(client, fileId, 'fcDAW', dawResults)
         ]);
-        console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, and IDS analyses completed and saved in parallel');
+        console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, SPP, and DAW analyses completed and saved in parallel');
         return {
             statusCode: 200,
             body: {
@@ -75,7 +79,9 @@ const handler = async (event) => {
                 maResults,
                 cciResults,
                 mcapResults,
-                idsResults
+                idsResults,
+                sppResults,
+                dawResults
             }
         };
     }
@@ -584,7 +590,7 @@ async function analyzeIds(client, fileId) {
       FROM claim_records cr
       JOIN drugs_master dm ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
       WHERE cr.lookup_fields->>'ids' = 'Y'
-        AND cr.lookup_fields->>'is_in_formulary' = 'Y'
+        AND cr.lookup_fields->>'is_in_formulary' = 'true'
         AND cr.file_id = $1
     ),
     savings_calc AS (
@@ -674,6 +680,123 @@ async function saveResultsToDatabase(client, fileId, category, results) {
     }
     catch (error) {
         console.error('Error saving results to database:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze Parity Pricing claims
+ */
+async function analyzeParityPricing(client, fileId) {
+    const query = `
+    SELECT jsonb_build_object(
+        'total_exposure', SUM((cr.lookup_fields->>'reprice_plan_cost')::numeric),
+        'parity_claim_count', COUNT(*),
+        'impacted_members', COUNT(DISTINCT cr.mapped_fields->>'member_id')
+    ) AS parity_priced_summary
+    FROM claim_records cr
+    JOIN cci_parity_priced cpp
+        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = cpp.ndc11
+    WHERE cr.file_id = $1;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        return result.rows[0]?.parity_priced_summary || {
+            total_exposure: null,
+            impacted_members: 0,
+            parity_claim_count: 0
+        };
+    }
+    catch (error) {
+        console.error('Error during parity pricing analysis:', error);
+        throw error;
+    }
+}
+/**
+ * Analyze DAW Penalties
+ */
+async function analyzeDawPenalties(client, fileId) {
+    const query = `
+    WITH daw_claims AS (
+        SELECT
+            cr.record_id,
+            (cr.mapped_fields->>'plan_cost')::numeric AS plan_cost,
+            cr.lookup_fields->>'ndc11' AS ndc11,
+            (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
+            cr.lookup_fields->>'member_id' AS member_id,
+            cr.lookup_fields->>'brnd_gnrc' AS brnd_gnrc,
+            cr.lookup_fields->>'specialty_indicator' AS specialty_indicator,
+            dm.gpi14
+        FROM claim_records cr
+        JOIN drugs_master dm ON cr.lookup_fields->>'ndc11' = dm.ndc11
+        WHERE cr.file_id = $1
+          AND cr.lookup_fields->>'daw_penalty' = 'Y'
+          AND cr.lookup_fields->>'is_in_formulary' = 'true'
+          AND cr.lookup_fields->>'brnd_gnrc' LIKE 'B%'
+    ),
+
+    formulary_context AS (
+        SELECT (lookup_fields->>'formulary') AS formulary
+        FROM claim_records
+        WHERE file_id = $1
+        LIMIT 1
+    ),
+
+    generic_reference AS (
+        SELECT DISTINCT ON (dm.gpi14)
+            dm.gpi14,
+            dm.gpi14_awp_per_ds,
+            dm.gpi14_avg_disc
+        FROM drugs_master dm
+        JOIN formulary_context fc ON TRUE
+        WHERE dm.brnd_gnrc LIKE 'G%'
+          AND (
+                (fc.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR
+                (fc.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y')
+          )
+    ),
+
+    eligible_daw_claims AS (
+        SELECT 
+            dc.plan_cost,
+            dc.member_id,
+            -- Apply discount logic
+            (gr.gpi14_awp_per_ds * dc.days_supply) * 
+                (1 - CASE 
+                        WHEN dc.specialty_indicator = 'Y' THEN 0.8739
+                        ELSE gr.gpi14_avg_disc
+                     END) AS generic_gross_cost,
+            -- Calculate savings
+            dc.plan_cost - (
+                (gr.gpi14_awp_per_ds * dc.days_supply) * 
+                (1 - CASE 
+                        WHEN dc.specialty_indicator = 'Y' THEN 0.8739
+                        ELSE gr.gpi14_avg_disc
+                     END)
+            ) AS daw_savings
+        FROM daw_claims dc
+        JOIN generic_reference gr ON dc.gpi14 = gr.gpi14
+    ),
+
+    summary AS (
+        SELECT
+            COUNT(*) AS total_daw_claims,
+            COUNT(DISTINCT member_id) AS impacted_members,
+            SUM(daw_savings) AS total_daw_savings
+        FROM eligible_daw_claims
+    )
+
+    SELECT row_to_json(summary) FROM summary;
+  `;
+    try {
+        const result = await client.query(query, [fileId]);
+        return result.rows[0]?.row_to_json || {
+            total_daw_claims: 0,
+            impacted_members: 0,
+            total_daw_savings: null
+        };
+    }
+    catch (error) {
+        console.error('Error during DAW penalties analysis:', error);
         throw error;
     }
 }
