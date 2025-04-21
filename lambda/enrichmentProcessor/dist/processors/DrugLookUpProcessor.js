@@ -39,6 +39,7 @@ class DrugLookUpProcessor {
         cr.mapped_fields->>'days_supply' as days_supply,
         cr.lookup_fields,
         o.opportunity_metadata->'generalInformation' as general_info,
+        o.opportunity_metadata->'generalInformation'->'rebates'->'incumbent'->>'type' as rebate_type,
         o.opportunity_metadata->'generalInformation'->>'formulary' as formulary,
         o.opportunity_metadata->'generalInformation'->'copayModeling'->>'modelingType' as modeling_type,
         o.opportunity_metadata->'generalInformation'->'planExclusions'->>'desi' as opp_desi,
@@ -67,6 +68,7 @@ drug_classification_cte AS (
     SELECT 
         ec.record_id,
         ec.ndc11,
+        ec.rebate_type,
         ec.formulary,
         ec.modeling_type,
         ec.general_info,
@@ -203,6 +205,7 @@ enrichment_data AS (
     SELECT 
         dc.record_id,
         dc.ndc11,
+        dc.rebate_type,
         dc.formulary,
         dc.modeling_type,
         dc.general_info,
@@ -449,6 +452,7 @@ final_enrichment AS (
         normalized_avg_rebate_per_DS,
         fill_date,
         quantity,
+        rebate_type,
         formulary,
         is_closed_formulary,
         is_open_formulary,
@@ -505,6 +509,7 @@ complete_enrichment AS (
     SELECT
         record_id,
         ndc11,
+        rebate_type,
         fill_date,
         days_supply,
         quantity,
@@ -560,6 +565,7 @@ SET
     lookup_fields = COALESCE(cr.lookup_fields, '{}'::jsonb) || jsonb_build_object(
         'ndc11', ce.ndc11,
         'drug_label_name', ce.drug_label_name,
+        'incumbent_rebate_type', ce.rebate_type,
         'is_in_formulary', ce.is_in_formulary,
         'mspan_unit_price', ce.mspan_unit_price,
         'reprice_awp', ce.reprice_awp,

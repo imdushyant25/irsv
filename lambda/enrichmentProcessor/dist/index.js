@@ -203,7 +203,34 @@ async function checkFileEnrichmentCompletion(client, fileId) {
         `, [fileId]);
                 if (opportunityResult.rows.length > 0) {
                     const opportunityId = opportunityResult.rows[0].opportunity_id;
-                    // Trigger the exclusions processor Lambda
+                    // Fire off rebate processor and exclusions processor in parallel
+                    console.log(`Invoking rebate processor and exclusions processor in parallel for file ${fileId}, opportunity ${opportunityId}`);
+                    const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+                    const lambdaClient = new LambdaClient();
+                    // Invoke rebate processor (fire and forget)
+                    try {
+                        // Get Lambda function name from environment variable or use default
+                        const rebateFunctionName = process.env.REBATE_LAMBDA_NAME || 'rebate-processor';
+                        // Define the payload for the rebate processor
+                        const rebatePayload = { fileId, opportunityId };
+                        // Create the command for rebate processor
+                        const rebateCommand = new InvokeCommand({
+                            FunctionName: rebateFunctionName,
+                            InvocationType: 'Event', // Asynchronous invocation
+                            Payload: JSON.stringify(rebatePayload)
+                        });
+                        // Invoke the rebate processor Lambda asynchronously (fire and forget)
+                        lambdaClient.send(rebateCommand).catch(err => {
+                            console.error(`Error invoking rebate processor Lambda: ${err}`);
+                            // Don't rethrow - this is fire and forget
+                        });
+                        console.log(`Rebate processor Lambda invoked for file ${fileId} in fire-and-forget mode`);
+                    }
+                    catch (rebateError) {
+                        console.error(`Error triggering rebate processor: ${rebateError}`);
+                        // Don't rethrow - this shouldn't block exclusions processor
+                    }
+                    // Trigger the exclusions processor Lambda in parallel
                     await invokeExclusionsProcessor(fileId, opportunityId);
                 }
                 else {

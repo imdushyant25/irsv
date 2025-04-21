@@ -78,7 +78,13 @@ async function analyzeContractSavings(client: Client, fileId: string) {
       ELSE cr.lookup_fields->>'Exclusion Type'
     END AS exclusion_type,
 
-    COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS incumbent_plan_cost,
+    CASE
+      WHEN cr.lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 
+        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0)
+      ELSE 
+        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) -
+        COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0)
+    END AS incumbent_plan_cost,
 
     CASE
       WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B' THEN
@@ -89,7 +95,7 @@ async function analyzeContractSavings(client: Client, fileId: string) {
 
     cr.mapped_fields->>'member_id' AS member_id
 
-  FROM claim_records cr
+  FROM edpm.claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
     AND COALESCE(cr.lookup_fields->>'Exclusion Type', '') NOT IN ('Plan', 'E_QL')

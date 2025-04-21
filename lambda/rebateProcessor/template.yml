@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Lambda function to process rebates for claims based on opportunity configuration
+
+Resources:
+  RebateProcessor:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs18.x
+      CodeUri: ./
+      MemorySize: 512
+      Timeout: 300
+      Environment:
+        Variables:
+          DB_HOST: ${DB_HOST}
+          DB_PORT: ${DB_PORT}
+          DB_NAME: ${DB_NAME}
+          DB_USER: ${DB_USER}
+          DB_PASSWORD: ${DB_PASSWORD}
+          DB_SCHEMA: edpm
+      Policies:
+        - AWSLambdaBasicExecutionRole

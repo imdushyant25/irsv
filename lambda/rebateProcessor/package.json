@@ -1,0 +1,20 @@
+{
+  "name": "rebate-processor",
+  "version": "1.0.0",
+  "description": "Lambda function to process rebates for claims based on opportunity configuration",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "pg": "^8.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.11",
+    "@types/pg": "^8.6.6",
+    "typescript": "^5.0.4"
+  }
+}

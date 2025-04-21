@@ -208,24 +208,39 @@ claim_costs AS (
 
 costs AS (
   SELECT *,
-    COALESCE((lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
-    COALESCE((lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
-    COALESCE((mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost,
+    CASE
+  WHEN lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 0
+  ELSE rebate_yield
+END,
+    CASE
+      WHEN lookup_fields->>'incumbent_rebate_type' != 'noRebates' THEN
+        (
+          COALESCE((mapped_fields->>'plan_cost')::numeric, 0) -
+          COALESCE((lookup_fields->>'incumbent_rebate')::numeric, 0)
+        )
+      ELSE COALESCE((mapped_fields->>'plan_cost')::numeric, 0)
+    END AS adjusted_plan_cost,
     CASE
       WHEN specialty_indicator = 'Y' AND brnd_gnrc LIKE 'B%' THEN
-        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)) -
-         COALESCE((lookup_fields->>'member_copay')::numeric, 0)) -
-        (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * rebate_yield)
+        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)
+          - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
+         - (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * CASE
+     WHEN lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 0
+     ELSE rebate_yield
+   END))
       WHEN specialty_indicator = 'Y' AND brnd_gnrc LIKE 'G%' THEN
-        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)) -
-         COALESCE((lookup_fields->>'member_copay')::numeric, 0))
+        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0))
+         - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
       WHEN specialty_indicator <> 'Y' AND brnd_gnrc LIKE 'B%' THEN
-        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)) -
-         COALESCE((lookup_fields->>'member_copay')::numeric, 0)) -
-        (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * rebate_yield)
+        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)
+          - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
+         - (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * CASE
+     WHEN lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 0
+     ELSE rebate_yield
+   END))
       WHEN specialty_indicator <> 'Y' AND brnd_gnrc LIKE 'G%' THEN
-        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)) -
-         COALESCE((lookup_fields->>'member_copay')::numeric, 0))
+        ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0))
+         - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
     END AS net_cost
   FROM claim_costs
 ),
@@ -252,7 +267,7 @@ category_summary AS (
       WHEN specialty_indicator = 'Y' THEN 'Specialty'
       ELSE 'Non-Specialty'
     END AS category,
-    SUM(plan_cost) AS plan_cost,
+    SUM(adjusted_plan_cost) AS adjusted_plan_cost,
     SUM(net_cost) AS net_cost,
     COUNT(*) AS claim_count,
     COUNT(DISTINCT mapped_fields->>'member_id') AS member_count
@@ -263,9 +278,9 @@ category_summary AS (
 summary_data AS (
   SELECT 
     cb.category,
-    TO_CHAR(COALESCE(cs.plan_cost, 0), '$FM999,999,999.00') AS incumbent_plan_cost,
+    TO_CHAR(COALESCE(cs.adjusted_plan_cost, 0), '$FM999,999,999.00') AS incumbent_plan_cost,
     TO_CHAR(COALESCE(cs.net_cost, 0), '$FM999,999,999.00') AS illuminate_plan_cost,
-    TO_CHAR(COALESCE(cs.plan_cost, 0) - COALESCE(cs.net_cost, 0), '$FM999,999,999.00') AS savings,
+    TO_CHAR(COALESCE(cs.adjusted_plan_cost, 0) - COALESCE(cs.net_cost, 0), '$FM999,999,999.00') AS savings,
     COALESCE(cs.claim_count, 0) AS claim_count,
     COALESCE(cs.member_count, 0) AS member_count,
     CASE cb.category WHEN 'Specialty' THEN 1 WHEN 'Non-Specialty' THEN 2 END AS sort_order
@@ -276,9 +291,9 @@ summary_data AS (
 
   SELECT 
     'Total',
-    TO_CHAR(SUM(plan_cost), '$FM999,999,999.00'),
+    TO_CHAR(SUM(adjusted_plan_cost), '$FM999,999,999.00'),
     TO_CHAR(SUM(net_cost), '$FM999,999,999.00'),
-    TO_CHAR(SUM(plan_cost) - SUM(net_cost), '$FM999,999,999.00'),
+    TO_CHAR(SUM(adjusted_plan_cost) - SUM(net_cost), '$FM999,999,999.00'),
     COUNT(*),
     COUNT(DISTINCT mapped_fields->>'member_id'),
     3
