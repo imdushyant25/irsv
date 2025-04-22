@@ -42,6 +42,7 @@ export class DrugLookUpProcessor {
         cr.mapped_fields->>'fill_date' as fill_date,
         cr.mapped_fields->>'quantity' as quantity,
         cr.mapped_fields->>'member_cost' as member_cost,
+        (cr.mapped_fields ? 'member_cost') as has_member_cost_key,
         cr.mapped_fields->>'days_supply' as days_supply,
         cr.lookup_fields,
         o.opportunity_metadata->'generalInformation' as general_info,
@@ -81,6 +82,7 @@ drug_classification_cte AS (
         ec.fill_date,
         ec.quantity,
         ec.member_cost,
+        ec.has_member_cost_key,
         ec.days_supply,
         ec.opp_desi,
         ec.opp_lcv_wow,
@@ -213,6 +215,7 @@ enrichment_data AS (
         dc.ndc11,
         dc.rebate_type,
         dc.formulary,
+        dc.has_member_cost_key,
         dc.modeling_type,
         dc.general_info,
         dc.drug_label_name,
@@ -314,10 +317,10 @@ enrichment_data AS (
         
         -- Member copay logic with proper casting
         CASE
-            WHEN dc.member_cost IS NOT NULL THEN
+            WHEN dc.has_member_cost_key THEN
                 CASE 
                     WHEN dc.member_cost::text ~ '^-?\\d+(\\.\\d+)?$' THEN dc.member_cost::numeric 
-                    ELSE NULL 
+                    ELSE 0 
                 END
 
             WHEN dc.modeling_type = 'memberCopays' AND dc.drug_classification IS NOT NULL THEN
@@ -409,7 +412,7 @@ enrichment_data_with_plan_cost AS (
         -- Plan Cost Calculation based on modeling type with proper casting
         CASE
             -- Case 1: Use Claims File - Step 5.1
-            WHEN ed.modeling_type = 'useClaimsFile' AND ed.member_cost IS NOT NULL THEN
+            WHEN ed.has_member_cost_key THEN
                 GREATEST(ed.reprice_gross_cost - ed.member_cost, 0)
                 
             -- Case 2: Member Copays - Step 5.2
