@@ -83,6 +83,7 @@ async function analyzeQuantityLimitsSavings(client, fileId) {
         cr.mapped_fields->>'member_id' AS member_id
       FROM claim_records cr
       WHERE cr.file_id = $1
+        AND cr.lookup_fields->>'is_in_formulary' = 'true'
         AND NOT (cr.lookup_fields ? 'Exclusion Type')
     )
     , numeric_fields AS (
@@ -104,15 +105,13 @@ async function analyzeQuantityLimitsSavings(client, fileId) {
         nf.days_supply,
         nf.mspan_unit_price,
         dm.ql_qty_ds,
-        CASE
-          WHEN nf.days_supply > 0 AND (nf.quantity / nf.days_supply) > dm.ql_qty_ds THEN
-            ((nf.quantity / nf.days_supply) - dm.ql_qty_ds) * nf.mspan_unit_price
-          ELSE 0
-        END AS potential_savings
-      FROM numeric_fields nf
-      JOIN drugs_master dm
-        ON nf.ndc11 = dm.ndc11
-      WHERE dm.is_ql_standard = 'Y'
+        ((nf.quantity / nf.days_supply) - dm.ql_qty_ds) * nf.mspan_unit_price AS potential_savings
+        FROM numeric_fields nf
+        JOIN drugs_master dm
+          ON nf.ndc11 = dm.ndc11
+        WHERE dm.is_ql_standard = 'Y'
+        AND nf.days_supply > 0
+        AND (nf.quantity / nf.days_supply) > dm.ql_qty_ds
     )
     SELECT json_build_object(
       'Potential Savings', ROUND(SUM(potential_savings), 2),
