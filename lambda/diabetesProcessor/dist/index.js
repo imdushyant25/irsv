@@ -145,7 +145,7 @@ FROM totals;
  */
 async function updateDiabetesClaims(client, fileId) {
     const query = `
-  UPDATE claim_records cr
+  UPDATE edpm.claim_records cr
   SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('B_GLP1_DB'::text), true)
   FROM (
     SELECT cr.record_id
@@ -183,7 +183,7 @@ async function saveResultsToDatabase(client, fileId, category, results) {
         // First, delete any existing records for this file and category
         try {
             await client.query(`
-        DELETE FROM savings_results 
+        DELETE FROM edpm.savings_results 
         WHERE file_id = $1 AND category = $2
       `, [fileId, category]);
         }
@@ -193,7 +193,7 @@ async function saveResultsToDatabase(client, fileId, category, results) {
         }
         // Insert query to save results
         const insertQuery = `
-      INSERT INTO savings_results (
+      INSERT INTO edpm.savings_results (
         id, 
         file_id, 
         category, 

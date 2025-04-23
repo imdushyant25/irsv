@@ -69,7 +69,7 @@ exports.handler = handler;
  */
 async function analyzeWeightLossSavings(client, fileId) {
     const query = `
-  WITH base_claims AS (
+ WITH base_claims AS (
   SELECT
     cr.record_id,
     cr.file_id,
@@ -89,27 +89,33 @@ async function analyzeWeightLossSavings(client, fileId) {
     AND cr.lookup_fields->>'px_weight_loss_inj' = 'false'
 ),
 
+filtered_drugs AS (
+  SELECT *
+  FROM edpm.drugs_master
+  WHERE gpi6 IN ('612520', '612525')
+),
+
 claims_with_costs AS (
-  SELECT
+  SELECT DISTINCT ON (bc.record_id)
     bc.brand_generic_flag,
     bc.member_id,
     CASE
       WHEN bc.brand_generic_flag LIKE 'B%' THEN
-        ((dm.gpi4_awp_per_ds * (1 - 0.2044) * bc.days_supply) - bc.member_copay)
-        - (dm.gpi4_awp_per_ds * bc.days_supply *
+        ((fd.gpi4_awp_per_ds * (1 - 0.2044) * bc.days_supply) - bc.member_copay)
+        - (fd.gpi4_awp_per_ds * bc.days_supply *
            CASE
              WHEN bc.rebate_type = 'noRebates' THEN 0
-             ELSE dm.gpi4_rebate_yield
+             ELSE fd.gpi4_rebate_yield
            END)
       WHEN bc.brand_generic_flag LIKE 'G%' THEN
-        ((dm.gpi4_awp_per_ds * (1 - 0.8739) * bc.days_supply) - bc.member_copay)
+        ((fd.gpi4_awp_per_ds * (1 - 0.8739) * bc.days_supply) - bc.member_copay)
       ELSE NULL
     END AS net_cost
   FROM base_claims bc
-  JOIN edpm.drugs_master dm
-    ON bc.ndc11 = dm.ndc11
-   AND bc.brand_generic_flag = LEFT(dm.brnd_gnrc, 1)
-  WHERE dm.gpi6 IN ('612520', '612525')
+  JOIN filtered_drugs fd
+    ON bc.ndc11 = fd.ndc11
+   AND bc.brand_generic_flag = LEFT(fd.brnd_gnrc, 1)
+  ORDER BY bc.record_id
 ),
 
 totals AS (

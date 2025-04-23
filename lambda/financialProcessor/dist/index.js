@@ -599,7 +599,7 @@ async function analyzeIds(client, fileId) {
         member_id,
         irx_less_map,
         rxmanage_cost,
-        ROUND(irx_less_map - rxmanage_cost, 2) AS savings
+        irx_less_map - rxmanage_cost AS savings
       FROM ids_claims
     ),
     summary AS (

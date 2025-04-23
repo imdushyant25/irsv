@@ -75,7 +75,7 @@ export const handler = async (event: any) => {
 async function analyzeFormularyExclusions(client: Client, fileId: string) {
   const query = `
   WITH base_formulary AS (
-  SELECT (lookup_fields->>'formulary') AS formulary
+  SELECT lookup_fields->>'formulary' AS formulary
   FROM edpm.claim_records
   WHERE file_id = $1
   LIMIT 1
@@ -97,7 +97,7 @@ claims_with_gpi AS (
     AND NOT (cr.lookup_fields ? 'Exclusion Type')
 ),
 
-distinct_excluded_gpis AS (
+excluded_gpis AS (
   SELECT gpi6 AS gpi_value, 'gpi6' AS gpi_type FROM claims_with_gpi
   UNION
   SELECT gpi4 AS gpi_value, 'gpi4' AS gpi_type FROM claims_with_gpi
@@ -105,31 +105,34 @@ distinct_excluded_gpis AS (
   SELECT gpi2 AS gpi_value, 'gpi2' AS gpi_type FROM claims_with_gpi
 ),
 
+available_gpis AS (
+  SELECT 'gpi6' AS gpi_type, gpi6 AS gpi_value
+  FROM edpm.drugs_master, base_formulary bf
+  WHERE gpi6 IS NOT NULL AND gpi6_awp_per_ds > 0
+    AND ((bf.formulary ILIKE '%Closed%' AND is_closed_formulary = 'Y')
+      OR (bf.formulary ILIKE '%Open%' AND is_open_formulary = 'Y'))
+  UNION
+  SELECT 'gpi4', gpi4 FROM edpm.drugs_master, base_formulary bf
+  WHERE gpi4 IS NOT NULL AND gpi4_awp_per_ds > 0
+    AND ((bf.formulary ILIKE '%Closed%' AND is_closed_formulary = 'Y')
+      OR (bf.formulary ILIKE '%Open%' AND is_open_formulary = 'Y'))
+  UNION
+  SELECT 'gpi2', gpi2 FROM edpm.drugs_master, base_formulary bf
+  WHERE gpi2 IS NOT NULL AND gpi2_awp_per_ds > 0
+    AND ((bf.formulary ILIKE '%Closed%' AND is_closed_formulary = 'Y')
+      OR (bf.formulary ILIKE '%Open%' AND is_open_formulary = 'Y'))
+),
+
 existing_gpis AS (
-  SELECT DISTINCT d.gpi_value, d.gpi_type
-  FROM distinct_excluded_gpis d, base_formulary bf
-  WHERE EXISTS (
-    SELECT 1
-    FROM edpm.drugs_master dm
-    WHERE (
-      (d.gpi_type = 'gpi6' AND dm.gpi6 = d.gpi_value AND dm.gpi6_awp_per_ds > 0 AND
-       ((bf.formulary ILIKE '%Closed%' AND dm.is_closed_formulary = 'Y') OR
-        (bf.formulary ILIKE '%Open%' AND dm.is_open_formulary = 'Y')))
-    ) OR (
-      (d.gpi_type = 'gpi4' AND dm.gpi4 = d.gpi_value AND dm.gpi4_awp_per_ds > 0 AND
-       ((bf.formulary ILIKE '%Closed%' AND dm.is_closed_formulary = 'Y') OR
-        (bf.formulary ILIKE '%Open%' AND dm.is_open_formulary = 'Y')))
-    ) OR (
-      (d.gpi_type = 'gpi2' AND dm.gpi2 = d.gpi_value AND dm.gpi2_awp_per_ds > 0 AND
-       ((bf.formulary ILIKE '%Closed%' AND dm.is_closed_formulary = 'Y') OR
-        (bf.formulary ILIKE '%Open%' AND dm.is_open_formulary = 'Y')))
-    )
-  )
+  SELECT DISTINCT e.gpi_value, e.gpi_type
+  FROM excluded_gpis e
+  JOIN available_gpis a ON e.gpi_value = a.gpi_value AND e.gpi_type = a.gpi_type
 ),
 
 kept_gpi6 AS (
   SELECT gpi_value FROM existing_gpis WHERE gpi_type = 'gpi6'
 ),
+
 kept_gpi4 AS (
   SELECT gpi_value
   FROM existing_gpis
@@ -138,6 +141,7 @@ kept_gpi4 AS (
       SELECT 1 FROM kept_gpi6 WHERE gpi_value LIKE kept_gpi6.gpi_value || '%'
     )
 ),
+
 kept_gpi2 AS (
   SELECT gpi_value
   FROM existing_gpis
@@ -149,6 +153,7 @@ kept_gpi2 AS (
       SELECT 1 FROM kept_gpi4 WHERE gpi_value LIKE kept_gpi4.gpi_value || '%'
     )
 ),
+
 final_gpis AS (
   SELECT gpi_value, 'gpi6' AS gpi_type FROM kept_gpi6
   UNION
@@ -174,7 +179,7 @@ matched_claims AS (
 ),
 
 claim_costs AS (
-  SELECT 
+  SELECT DISTINCT ON (mc.record_id)
     mc.*,
     CASE
       WHEN mc.gpi_type = 'gpi6' THEN dm.gpi6_awp_per_ds
@@ -196,65 +201,47 @@ claim_costs AS (
   FROM matched_claims mc
   JOIN edpm.drugs_master dm
     ON (
-      (
-        (mc.gpi_type = 'gpi6' AND dm.gpi6 = mc.gpi_value) OR
-        (mc.gpi_type = 'gpi4' AND dm.gpi4 = mc.gpi_value) OR
-        (mc.gpi_type = 'gpi2' AND dm.gpi2 = mc.gpi_value)
-      )
-      AND dm.specialty_indicator = mc.specialty_indicator
-      AND LEFT(dm.brnd_gnrc, 1) = LEFT(mc.brnd_gnrc, 1)
+      (mc.gpi_type = 'gpi6' AND dm.gpi6 = mc.gpi_value) OR
+      (mc.gpi_type = 'gpi4' AND dm.gpi4 = mc.gpi_value) OR
+      (mc.gpi_type = 'gpi2' AND dm.gpi2 = mc.gpi_value)
     )
+    AND dm.specialty_indicator = mc.specialty_indicator
+    AND LEFT(dm.brnd_gnrc, 1) = LEFT(mc.brnd_gnrc, 1)
+  ORDER BY mc.record_id,
+           CASE mc.gpi_type WHEN 'gpi6' THEN 1 WHEN 'gpi4' THEN 2 WHEN 'gpi2' THEN 3 ELSE 4 END,
+           COALESCE(dm.gpi6_awp_per_ds, dm.gpi4_awp_per_ds, dm.gpi2_awp_per_ds)
 ),
 
 costs AS (
   SELECT *,
-    CASE
-  WHEN lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 0
-  ELSE rebate_yield
-END,
+    CASE WHEN lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 0 ELSE rebate_yield END AS rebate_adj,
     CASE
       WHEN lookup_fields->>'incumbent_rebate_type' != 'noRebates' THEN
-        (
-          COALESCE((mapped_fields->>'plan_cost')::numeric, 0) -
-          COALESCE((lookup_fields->>'incumbent_rebate')::numeric, 0)
-        )
+        (COALESCE((mapped_fields->>'plan_cost')::numeric, 0) - COALESCE((lookup_fields->>'incumbent_rebate')::numeric, 0))
       ELSE COALESCE((mapped_fields->>'plan_cost')::numeric, 0)
-    END AS adjusted_plan_cost,
+    END AS adjusted_plan_cost
+  FROM claim_costs
+),
+
+final_costs AS (
+  SELECT *,
     CASE
       WHEN specialty_indicator = 'Y' AND brnd_gnrc LIKE 'B%' THEN
         ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)
           - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
-         - (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * CASE
-     WHEN lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 0
-     ELSE rebate_yield
-   END))
+         - (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * rebate_adj))
       WHEN specialty_indicator = 'Y' AND brnd_gnrc LIKE 'G%' THEN
         ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0))
          - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
       WHEN specialty_indicator <> 'Y' AND brnd_gnrc LIKE 'B%' THEN
         ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0)
           - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
-         - (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * CASE
-     WHEN lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 0
-     ELSE rebate_yield
-   END))
+         - (awp_per_ds * COALESCE((lookup_fields->>'days_supply')::numeric, 0) * rebate_adj))
       WHEN specialty_indicator <> 'Y' AND brnd_gnrc LIKE 'G%' THEN
         ((awp_per_ds * (1 - avg_disc) * COALESCE((lookup_fields->>'days_supply')::numeric, 0))
          - COALESCE((lookup_fields->>'member_copay')::numeric, 0))
     END AS net_cost
-  FROM claim_costs
-),
-
-final_costs AS (
-  SELECT DISTINCT ON (record_id) *
   FROM costs
-  ORDER BY record_id,
-    CASE gpi_type
-      WHEN 'gpi6' THEN 1
-      WHEN 'gpi4' THEN 2
-      WHEN 'gpi2' THEN 3
-      ELSE 4
-    END
 ),
 
 category_base AS (
@@ -263,10 +250,7 @@ category_base AS (
 
 category_summary AS (
   SELECT
-    CASE 
-      WHEN specialty_indicator = 'Y' THEN 'Specialty'
-      ELSE 'Non-Specialty'
-    END AS category,
+    CASE WHEN specialty_indicator = 'Y' THEN 'Specialty' ELSE 'Non-Specialty' END AS category,
     SUM(adjusted_plan_cost) AS adjusted_plan_cost,
     SUM(net_cost) AS net_cost,
     COUNT(*) AS claim_count,
