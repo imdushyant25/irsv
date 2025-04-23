@@ -162,7 +162,6 @@ async function updateDiabetesClaims(client: Client, fileId: string) {
       AND cr.lookup_fields->>'is_in_formulary' = 'true'
       AND NOT (cr.lookup_fields ? 'Exclusion Type')
       AND cr.lookup_fields->>'specialty_indicator' = 'N'
-      AND cr.lookup_fields->>'px_weight_loss_inj' = 'false'
       AND dm.gpi4 = '2717'
   ) AS eligible
   WHERE cr.record_id = eligible.record_id AND cr.file_id=$1;

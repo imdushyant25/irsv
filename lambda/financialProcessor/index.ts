@@ -736,76 +736,74 @@ async function analyzeParityPricing(client: Client, fileId: string) {
  */
 async function analyzeDawPenalties(client: Client, fileId: string) {
   const query = `
-    WITH daw_claims AS (
-        SELECT
-            cr.record_id,
-            (cr.mapped_fields->>'plan_cost')::numeric AS plan_cost,
-            cr.lookup_fields->>'ndc11' AS ndc11,
-            (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
-            cr.lookup_fields->>'member_id' AS member_id,
-            cr.lookup_fields->>'brnd_gnrc' AS brnd_gnrc,
-            cr.lookup_fields->>'specialty_indicator' AS specialty_indicator,
-            dm.gpi14
-        FROM claim_records cr
-        JOIN drugs_master dm ON cr.lookup_fields->>'ndc11' = dm.ndc11
-        WHERE cr.file_id = $1
-          AND cr.lookup_fields->>'daw_penalty' = 'Y'
-          AND cr.lookup_fields->>'is_in_formulary' = 'true'
-          AND cr.lookup_fields->>'brnd_gnrc' LIKE 'B%'
-    ),
+    WITH formulary_context AS (
+    SELECT (lookup_fields->>'formulary') AS formulary
+    FROM edpm.claim_records
+    WHERE file_id = $1
+    LIMIT 1
+),
 
-    formulary_context AS (
-        SELECT (lookup_fields->>'formulary') AS formulary
-        FROM claim_records
-        WHERE file_id = $1
-        LIMIT 1
-    ),
+daw_claims AS (
+    SELECT
+        cr.record_id,
+        (cr.mapped_fields->>'plan_cost')::numeric AS plan_cost,
+        (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
+        cr.mapped_fields->>'member_id' AS member_id,
+        cr.lookup_fields->>'specialty_indicator' AS specialty_indicator,
+        dm.gpi14
+    FROM edpm.claim_records cr
+    JOIN edpm.drugs_master dm ON cr.lookup_fields->>'ndc11' = dm.ndc11
+    WHERE cr.file_id = $1
+      AND cr.lookup_fields->>'daw_penalty' = 'Y'
+      AND cr.lookup_fields->>'is_in_formulary' = 'true'
+      AND cr.lookup_fields->>'brnd_gnrc' LIKE 'B%'
+),
 
-    generic_reference AS (
-        SELECT DISTINCT ON (dm.gpi14)
-            dm.gpi14,
-            dm.gpi14_awp_per_ds,
-            dm.gpi14_avg_disc
-        FROM drugs_master dm
-        JOIN formulary_context fc ON TRUE
-        WHERE dm.brnd_gnrc LIKE 'G%'
-          AND (
-                (fc.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR
-                (fc.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y')
-          )
-    ),
+generic_by_gpi14 AS (
+    SELECT DISTINCT ON (dm.gpi14)
+        dm.gpi14,
+        dm.gpi14_awp_per_ds,
+        dm.gpi14_avg_disc
+    FROM edpm.drugs_master dm
+    JOIN formulary_context fc ON TRUE
+    WHERE dm.brnd_gnrc LIKE 'G%'
+      AND (
+            (fc.formulary = '4th PBM Closed Formulary' AND dm.is_closed_formulary = 'Y') OR
+            (fc.formulary = '4th PBM Open Formulary' AND dm.is_open_formulary = 'Y')
+      )
+),
 
-    eligible_daw_claims AS (
-        SELECT 
-            dc.plan_cost,
-            dc.member_id,
-            -- Apply discount logic
-            (gr.gpi14_awp_per_ds * dc.days_supply) * 
-                (1 - CASE 
-                        WHEN dc.specialty_indicator = 'Y' THEN 0.8739
-                        ELSE gr.gpi14_avg_disc
-                     END) AS generic_gross_cost,
-            -- Calculate savings
-            dc.plan_cost - (
-                (gr.gpi14_awp_per_ds * dc.days_supply) * 
-                (1 - CASE 
-                        WHEN dc.specialty_indicator = 'Y' THEN 0.8739
-                        ELSE gr.gpi14_avg_disc
-                     END)
-            ) AS daw_savings
-        FROM daw_claims dc
-        JOIN generic_reference gr ON dc.gpi14 = gr.gpi14
-    ),
+eligible_daw_claims AS (
+    SELECT 
+        dc.plan_cost,
+        dc.member_id,
+        (COALESCE(gr.gpi14_awp_per_ds, 0) * dc.days_supply) * 
+            (1 - CASE 
+                    WHEN dc.specialty_indicator = 'Y' THEN 0.8739
+                    ELSE COALESCE(gr.gpi14_avg_disc, 0.5)
+                 END) AS generic_gross_cost,
 
-    summary AS (
-        SELECT
-            COUNT(*) AS total_daw_claims,
-            COUNT(DISTINCT member_id) AS impacted_members,
-            SUM(daw_savings) AS total_daw_savings
-        FROM eligible_daw_claims
-    )
+        dc.plan_cost - (
+            (COALESCE(gr.gpi14_awp_per_ds, 0) * dc.days_supply) * 
+            (1 - CASE 
+                    WHEN dc.specialty_indicator = 'Y' THEN 0.8739
+                    ELSE COALESCE(gr.gpi14_avg_disc, 0.5)
+                 END)
+        ) AS daw_savings
+    FROM daw_claims dc
+    JOIN generic_by_gpi14 gr ON dc.gpi14 = gr.gpi14
+),
 
-    SELECT row_to_json(summary) FROM summary;
+summary AS (
+    SELECT
+        COUNT(*) AS total_daw_claims,
+        COUNT(DISTINCT member_id) AS impacted_members,
+        SUM(daw_savings) AS total_daw_savings
+    FROM eligible_daw_claims
+)
+
+SELECT row_to_json(summary) FROM summary;
+
   `;
 
   try {
