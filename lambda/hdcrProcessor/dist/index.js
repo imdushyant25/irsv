@@ -165,6 +165,7 @@ async function updateHdcrClaims(client, fileId) {
     WHERE cr.file_id = $1
       AND cr.lookup_fields->>'is_in_formulary' = 'true'
       AND cr.lookup_fields->>'specialty_indicator' = 'N'
+      AND NOT (cr.lookup_fields ? 'Exclusion Type')
       AND (
         (COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) >= 1000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) <= 30)
         OR (COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) >= 2000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60)
