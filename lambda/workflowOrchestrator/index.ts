@@ -95,14 +95,18 @@ export const handler = async (event: any) => {
         case WorkflowStage.EXCLUSIONS:
           // Check if exclusions analysis is complete
           if (await isExclusionsComplete(client, fileId)) {
-            // Move to formulary exclusions step
-            await updateWorkflowStage(client, workflowId, WorkflowStage.FORMULARY_EXCLUSIONS);
-            await invokeFormularyExclusionsProcessor(client, workflowId, fileId, opportunityId);
+            // Start formulary exclusions processor in "fire and forget" mode
+            await invokeFormularyExclusionsProcessorAsync(client, workflowId, fileId, opportunityId);
+            
+            // Immediately move to weight loss savings step without waiting for formulary exclusions
+            await updateWorkflowStage(client, workflowId, WorkflowStage.WEIGHT_LOSS_SAVINGS);
+            await invokeWeightLossSavingsProcessor(client, workflowId, fileId, opportunityId);
           }
           break;
           
         case WorkflowStage.FORMULARY_EXCLUSIONS:
-          // Check if formulary exclusions analysis is complete
+          // This stage is now skipped in normal flow, but kept for backward compatibility
+          // and to handle workflows that were started with the old process
           if (await isFormularyExclusionsComplete(client, fileId)) {
             // Move to weight loss savings step
             await updateWorkflowStage(client, workflowId, WorkflowStage.WEIGHT_LOSS_SAVINGS);
@@ -158,6 +162,16 @@ export const handler = async (event: any) => {
         case WorkflowStage.CONTRACT_SAVINGS:
           // Check if Contract Savings analysis is complete
           if (await isContractSavingsComplete(client, fileId)) {
+            // Before completing the workflow, make sure formulary exclusions is complete
+            const formularyComplete = await isFormularyExclusionsComplete(client, fileId);
+            
+            if (!formularyComplete) {
+              console.log(`Waiting for formulary exclusions to complete before finalizing workflow for file ${fileId}`);
+              // Don't mark as completed yet - will check again on next status check
+              break;
+            }
+            
+            // If we reach here, both contract savings and formulary exclusions are complete
             // Complete the workflow
             await updateWorkflowStage(client, workflowId, WorkflowStage.COMPLETED);
             // Fire financial processor as a side process when workflow is completed
@@ -736,7 +750,7 @@ async function isExclusionsComplete(client: Client, fileId: string) {
 
 
 /**
- * Invoke the formulary exclusions processor
+ * Invoke the formulary exclusions processor - original function kept for backward compatibility
  */
 async function invokeFormularyExclusionsProcessor(client: Client, workflowId: string, fileId: string, opportunityId: string) {
   try {
@@ -773,6 +787,88 @@ async function invokeFormularyExclusionsProcessor(client: Client, workflowId: st
   } catch (error) {
     console.error(`Error invoking formulary exclusions processor: ${error}`);
     throw error;
+  }
+}
+
+/**
+ * Invoke the formulary exclusions processor asynchronously (fire and forget)
+ * Does not update workflow stage - allows subsequent processors to start immediately
+ */
+async function invokeFormularyExclusionsProcessorAsync(client: Client, workflowId: string, fileId: string, opportunityId: string) {
+  try {
+    // Check if formulary exclusions have already been processed (look for 'formulary' category)
+    const checkQuery = `
+      SELECT COUNT(*) as count
+      FROM savings_results
+      WHERE file_id = $1 AND category = 'formulary'
+    `;
+    
+    const checkResult = await client.query(checkQuery, [fileId]);
+    if (parseInt(checkResult.rows[0].count) > 0) {
+      console.log(`Formulary exclusions analysis already completed for file ${fileId}, skipping invocation`);
+      return;
+    }
+    
+    console.log(`Preparing to invoke formulary exclusions processor asynchronously for file ${fileId}, opportunity ${opportunityId}`);
+    
+    // Track the formulary exclusions processing in the workflow details
+    // but don't change the main workflow stage
+    const currentQuery = `
+      SELECT details
+      FROM workflow_tracking
+      WHERE workflow_id = $1
+    `;
+    
+    const currentResult = await client.query(currentQuery, [workflowId]);
+    
+    if (currentResult.rows.length > 0) {
+      const currentDetails = currentResult.rows[0].details || { stages: {} };
+      
+      // Update details to mark formulary exclusions as in_progress
+      const updatedDetails = {
+        ...currentDetails,
+        stages: {
+          ...currentDetails.stages,
+          [WorkflowStage.FORMULARY_EXCLUSIONS]: { 
+            status: 'in_progress', 
+            timestamp: new Date().toISOString(),
+            async: true
+          }
+        }
+      };
+      
+      // Update the workflow record details without changing the stage
+      const updateQuery = `
+        UPDATE workflow_tracking
+        SET 
+          details = $1,
+          updated_at = CURRENT_TIMESTAMP,
+          updated_by = 'workflow-orchestrator'
+        WHERE workflow_id = $2
+      `;
+      
+      await client.query(updateQuery, [
+        JSON.stringify(updatedDetails),
+        workflowId
+      ]);
+    }
+    
+    // Fire and forget invocation
+    const command = new InvokeCommand({
+      FunctionName: process.env.FORMULARY_EXCLUSIONS_PROCESSOR_LAMBDA_NAME || 'formulary-exclusions-processor',
+      InvocationType: 'Event',
+      Payload: JSON.stringify({
+        fileId,
+        opportunityId,
+        workflowId
+      })
+    });
+    
+    await lambdaClient.send(command);
+    console.log(`Successfully invoked formulary exclusions processor asynchronously for file ${fileId}`);
+  } catch (error) {
+    console.error(`Error invoking formulary exclusions processor asynchronously: ${error}`);
+    // Log error but don't throw - we want the workflow to continue even if this fails
   }
 }
 
