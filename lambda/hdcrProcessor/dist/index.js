@@ -167,9 +167,9 @@ async function updateHdcrClaims(client, fileId) {
       AND cr.lookup_fields->>'specialty_indicator' = 'N'
       AND NOT (cr.lookup_fields ? 'Exclusion Type')
       AND (
-        (COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) >= 1000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) <= 30)
-        OR (COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) >= 2000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60)
-        OR (COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) >= 3000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60)
+        (COALESCE((cr.mapped_fields->>'reprice_gross_cost')::numeric, 0) >= 1000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) <= 30)
+        OR (COALESCE((cr.mapped_fields->>'reprice_gross_cost')::numeric, 0) >= 2000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60)
+        OR (COALESCE((cr.mapped_fields->>'reprice_gross_cost')::numeric, 0) >= 3000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60)
       )
   ) AS eligible
   WHERE cr.record_id = eligible.record_id AND cr.file_id = $1;
