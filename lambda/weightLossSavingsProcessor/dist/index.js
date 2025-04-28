@@ -29,11 +29,25 @@ const handler = async (event) => {
             await client.query(`SET search_path TO ${process.env.DB_SCHEMA}`);
         }
         // Step 1: Run the weight loss savings analysis
+        console.log('Starting weight loss savings analysis...');
+        const analysisStart = Date.now();
         const result = await analyzeWeightLossSavings(client, fileId);
+        console.log(`Finished weight loss savings analysis in ${Date.now() - analysisStart} ms`);
         // Step 2: Update claim records with weight loss flags
-        await updateWeightLossClaims(client, fileId);
+        console.log('Starting update of weight loss claims...');
+        const updateStart = Date.now();
+        if (result?.['Claim Count'] > 0) {
+            await updateWeightLossClaims(client, fileId);
+            console.log(`Finished updating claims in ${Date.now() - updateStart} ms`);
+        }
+        else {
+            console.log('No matching claims found. Skipping update step.');
+        }
         // Step 3: Save results to savings_results table with category "P1_GLP1_Wght_Loss"
+        console.log('Starting saving results to database...');
+        const saveStart = Date.now();
         await saveResultsToDatabase(client, fileId, 'P1_GLP1_Wght_Loss', result);
+        console.log(`Finished saving results in ${Date.now() - saveStart} ms`);
         return {
             statusCode: 200,
             body: {
@@ -84,7 +98,7 @@ async function analyzeWeightLossSavings(client, fileId) {
   FROM edpm.claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND NOT (cr.lookup_fields ? 'Exclusion Type')
+    AND cr.exclusion_type IS NULL
     AND cr.lookup_fields->>'specialty_indicator' = 'N'
     AND cr.lookup_fields->>'px_weight_loss_inj' = 'false'
 ),
@@ -151,25 +165,26 @@ FROM totals;
  */
 async function updateWeightLossClaims(client, fileId) {
     const query = `
-  UPDATE edpm.claim_records cr
-  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('A_GLP1_WL'::text), true),
-    updated_at = CURRENT_TIMESTAMP,
-    updated_by = 'lambda-weight-loss'
-  FROM (
-    SELECT 
-      cr_inner.record_id
+  WITH eligible_claims AS (
+    SELECT cr_inner.record_id
     FROM edpm.claim_records cr_inner
-    JOIN edpm.drugs_master dm 
+    JOIN edpm.drugs_master dm
       ON LPAD(TRIM(cr_inner.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+     AND LEFT(cr_inner.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
     WHERE cr_inner.file_id = $1
       AND cr_inner.lookup_fields->>'is_in_formulary' = 'true'
-      AND NOT (cr_inner.lookup_fields ? 'Exclusion Type')
+      AND cr_inner.exclusion_type IS NULL
       AND cr_inner.lookup_fields->>'specialty_indicator' = 'N'
       AND cr_inner.lookup_fields->>'px_weight_loss_inj' = 'false'
       AND dm.gpi6 IN ('612520', '612525')
-  ) subq
-  WHERE cr.record_id = subq.record_id AND cr.file_id=$1;
-  `;
+  )
+  UPDATE edpm.claim_records cr
+  SET exclusion_type = 'A_GLP1_WL',
+      updated_at = CURRENT_TIMESTAMP,
+      updated_by = 'lambda-weight-loss-processor'
+  FROM eligible_claims ec
+  WHERE cr.record_id = ec.record_id;
+`;
     try {
         const result = await client.query(query, [fileId]);
         console.log(`Updated ${result.rowCount} claim records with weight loss flags`);

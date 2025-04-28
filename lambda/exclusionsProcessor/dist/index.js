@@ -196,10 +196,9 @@ plan_exclusion_claims AS (
 )
 
 UPDATE edpm.claim_records cr
-SET lookup_fields = cr.lookup_fields || jsonb_build_object(
-  'Exclusion', 'Y',
-  'Exclusion Type', pec.exclusion_type
-)
+SET exclusion_type = pec.exclusion_type,
+    updated_at = CURRENT_TIMESTAMP,
+    updated_by = 'lambda-plan-exclusion'
 FROM plan_exclusion_claims pec
 WHERE cr.record_id = pec.record_id;
   `;

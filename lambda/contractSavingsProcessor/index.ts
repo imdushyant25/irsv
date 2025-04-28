@@ -74,8 +74,8 @@ async function analyzeContractSavings(client: Client, fileId: string) {
   WITH claim_data AS (
   SELECT
     CASE 
-      WHEN NOT (cr.lookup_fields ? 'Exclusion Type') THEN 'Reprice'
-      ELSE cr.lookup_fields->>'Exclusion Type'
+      WHEN cr.exclusion_type IS NULL THEN 'Reprice'
+      ELSE cr.exclusion_type
     END AS exclusion_type,
 
     CASE
@@ -98,7 +98,7 @@ async function analyzeContractSavings(client: Client, fileId: string) {
   FROM edpm.claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND COALESCE(cr.lookup_fields->>'Exclusion Type', '') NOT IN ('Plan', 'E_QL')
+    AND COALESCE(cr.exclusion_type, '') NOT IN ('Plan', 'E_QL')
 ),
 grouped AS (
   SELECT

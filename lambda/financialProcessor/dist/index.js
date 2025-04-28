@@ -318,32 +318,32 @@ async function analyzeRdsFinancial(client, fileId) {
 async function analyzePapFinancial(client, fileId) {
     const query = `
     WITH pap_plan_excluded_claims AS (
-      SELECT
-        cr.record_id,
-        cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost
-      FROM claim_records cr
-      WHERE cr.file_id = $1
-        AND cr.lookup_fields->>'pap' = 'Y'
-        AND COALESCE(cr.lookup_fields->>'Exclusion Type', '') = 'Plan'
-    ),
-    pap_metrics AS (
-      SELECT
-        COUNT(*) AS total_pap_claims,
-        COUNT(DISTINCT member_id) AS impacted_members,
-        ROUND(SUM(plan_cost), 2) AS pap_gross_cost,
-        ROUND(SUM(plan_cost) * 0.25, 2) AS pap_fees,
-        ROUND(SUM(plan_cost) * 0.75, 2) AS pap_savings
-      FROM pap_plan_excluded_claims
-    )
-    SELECT json_build_object(
-      'total_pap_claims', total_pap_claims,
-      'impacted_members', impacted_members,
-      'pap_gross_cost', pap_gross_cost,
-      'pap_fees', pap_fees,
-      'pap_savings', pap_savings
-    ) AS pap_financial_callout
-    FROM pap_metrics;
+  SELECT
+    cr.record_id,
+    cr.mapped_fields->>'member_id' AS member_id,
+    COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) AS plan_cost
+  FROM edpm.claim_records cr
+  WHERE cr.file_id = $1
+    AND cr.lookup_fields->>'pap' = 'Y'
+    AND cr.exclusion_type = 'Plan'
+),
+pap_metrics AS (
+  SELECT
+    COUNT(*) AS total_pap_claims,
+    COUNT(DISTINCT member_id) AS impacted_members,
+    ROUND(SUM(plan_cost), 2) AS pap_gross_cost,
+    ROUND(SUM(plan_cost) * 0.25, 2) AS pap_fees,
+    ROUND(SUM(plan_cost) * 0.75, 2) AS pap_savings
+  FROM pap_plan_excluded_claims
+)
+SELECT json_build_object(
+  'total_pap_claims', total_pap_claims,
+  'impacted_members', impacted_members,
+  'pap_gross_cost', pap_gross_cost,
+  'pap_fees', pap_fees,
+  'pap_savings', pap_savings
+) AS pap_financial_callout
+FROM pap_metrics;
   `;
     try {
         const result = await client.query(query, [fileId]);
@@ -568,57 +568,53 @@ async function analyzeMcap(client, fileId) {
  */
 async function analyzeIds(client, fileId) {
     const query = `
-    WITH ids_claims AS (
-      SELECT
-        cr.record_id,
-        cr.file_id,
-        cr.mapped_fields->>'member_id' AS member_id,
-        (cr.lookup_fields->>'reprice_gross_cost')::numeric AS reprice_gross_cost,
-        (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
-        (cr.lookup_fields->>'quantity')::numeric AS quantity,
-        LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
-        dm.map_offset_per_ds::numeric AS map_offset_per_ds,
-        dm.rxmanage_cost_per_qty::numeric AS rxmanage_cost_per_qty,
+  WITH ids_claims AS (
+  SELECT
+    cr.record_id,
+    cr.file_id,
+    cr.mapped_fields->>'member_id' AS member_id,
+    (cr.lookup_fields->>'reprice_gross_cost')::numeric AS reprice_gross_cost,
+    (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
+    (cr.lookup_fields->>'quantity')::numeric AS quantity,
+    LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
+    dm.map_offset_per_ds::numeric AS map_offset_per_ds,
+    dm.rxmanage_cost_per_qty::numeric AS rxmanage_cost_per_qty,
 
-        -- Reprice minus MAP
-        (cr.lookup_fields->>'reprice_gross_cost')::numeric 
-          - (dm.map_offset_per_ds::numeric * (cr.lookup_fields->>'days_supply')::numeric) AS irx_less_map,
+    -- Reprice minus MAP
+    (cr.lookup_fields->>'reprice_gross_cost')::numeric 
+      - (dm.map_offset_per_ds::numeric * (cr.lookup_fields->>'days_supply')::numeric) AS irx_less_map,
 
-        -- RxManage Cost
-        (dm.rxmanage_cost_per_qty::numeric * (cr.lookup_fields->>'quantity')::numeric) AS rxmanage_cost
+    -- RxManage Cost
+    (dm.rxmanage_cost_per_qty::numeric * (cr.lookup_fields->>'quantity')::numeric) AS rxmanage_cost,
 
-      FROM claim_records cr
-      JOIN drugs_master dm ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
-      WHERE cr.lookup_fields->>'ids' = 'Y'
-        AND cr.lookup_fields->>'is_in_formulary' = 'true'
-        AND cr.file_id = $1
-    ),
-    savings_calc AS (
-      SELECT
-        record_id,
-        member_id,
-        irx_less_map,
-        rxmanage_cost,
-        irx_less_map - rxmanage_cost AS savings
-      FROM ids_claims
-    ),
-    summary AS (
-      SELECT
-        COUNT(*) AS claim_count,
-        COUNT(DISTINCT member_id) AS member_count,
-        ROUND(SUM(irx_less_map), 2) AS total_irx_less_map,
-        ROUND(SUM(rxmanage_cost), 2) AS total_rxmanage_cost,
-        ROUND(SUM(savings), 2) AS total_savings
-      FROM savings_calc
-    )
-    SELECT jsonb_build_object(
-      'claim_count', claim_count,
-      'member_count', member_count,
-      'total_irx_less_map', total_irx_less_map,
-      'total_rxmanage_cost', total_rxmanage_cost,
-      'total_savings', total_savings
-    ) AS result_json
-    FROM summary;
+    -- Correct Per-Claim Savings
+    ((cr.lookup_fields->>'reprice_gross_cost')::numeric 
+      - (dm.map_offset_per_ds::numeric * (cr.lookup_fields->>'days_supply')::numeric)) 
+    - (dm.rxmanage_cost_per_qty::numeric * (cr.lookup_fields->>'quantity')::numeric) AS claim_savings
+
+  FROM edpm.claim_records cr
+  JOIN edpm.drugs_master dm ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+  WHERE cr.lookup_fields->>'ids' = 'Y'
+    AND cr.lookup_fields->>'is_in_formulary' = 'true'
+    AND cr.file_id = $1
+),
+summary AS (
+  SELECT
+    COUNT(*) AS claim_count,
+    COUNT(DISTINCT member_id) AS member_count,
+    ROUND(SUM(irx_less_map), 2) AS total_irx_less_map,
+    ROUND(SUM(rxmanage_cost), 2) AS total_rxmanage_cost,
+    ROUND(SUM(claim_savings), 2) AS total_savings
+  FROM ids_claims
+)
+SELECT jsonb_build_object(
+  'claim_count', claim_count,
+  'member_count', member_count,
+  'total_irx_less_map', total_irx_less_map,
+  'total_rxmanage_cost', total_rxmanage_cost,
+  'total_savings', total_savings
+) AS result_json
+FROM summary;
   `;
     try {
         const result = await client.query(query, [fileId]);

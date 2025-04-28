@@ -86,7 +86,7 @@ async function analyzePriorAuthSavings(client, fileId) {
   FROM edpm.claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND NOT (cr.lookup_fields ? 'Exclusion Type')
+    AND cr.exclusion_type IS NULL
 ),
 
 claims_with_costs AS (
@@ -153,20 +153,23 @@ FROM totals;
  */
 async function updatePriorAuthClaims(client, fileId) {
     const query = `
-  UPDATE claim_records cr
-  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('D_PA'::text), true)
-  FROM (
-    SELECT cr.record_id
-    FROM claim_records cr
-    JOIN drugs_master dm
-      ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
-     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
-    WHERE cr.file_id = $1
-      AND cr.lookup_fields->>'is_in_formulary' = 'true'
-      AND NOT (cr.lookup_fields ? 'Exclusion Type')
-      AND dm.is_pa = 'Y'
-  ) eligible
-  WHERE cr.record_id = eligible.record_id AND cr.file_id = $1;
+    WITH eligible_claims AS (
+      SELECT cr_inner.record_id
+      FROM edpm.claim_records cr_inner
+      JOIN edpm.drugs_master dm
+        ON LPAD(TRIM(cr_inner.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+       AND LEFT(cr_inner.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
+      WHERE cr_inner.file_id = $1
+        AND cr_inner.lookup_fields->>'is_in_formulary' = 'true'
+        AND cr_inner.exclusion_type IS NULL
+        AND dm.is_pa = 'Y'
+    )
+    UPDATE edpm.claim_records cr
+    SET exclusion_type = 'D_PA',
+        updated_at = CURRENT_TIMESTAMP,
+        updated_by = 'lambda-pa-processor'
+    FROM eligible_claims ec
+    WHERE cr.record_id = ec.record_id;
   `;
     try {
         const result = await client.query(query, [fileId]);

@@ -89,7 +89,7 @@ WITH non_formulary_claims AS (
     WHERE 
         cr.file_id = $1 
         AND cr.lookup_fields->>'is_in_formulary' = 'false' 
-        AND NOT (cr.lookup_fields ? 'Exclusion Type')
+        AND cr.exclusion_type IS NULL
 ),
 
 -- Extract GPI values for formulary drugs
@@ -351,7 +351,7 @@ async function updateFormularyDisruptions(client, fileId) {
   JOIN mspan_ndc_info mi ON cr.lookup_fields->>'ndc11' = mi.ndc11
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'false'
-    AND NOT (cr.lookup_fields ? 'Exclusion Type')
+    AND cr.exclusion_type IS NULL
 ),
 formulary_gpis AS (
   SELECT DISTINCT
@@ -392,8 +392,10 @@ all_matched_ids AS (
   UNION
   SELECT record_id FROM matched_gpi2
 )
-UPDATE claim_records cr
-SET lookup_fields = jsonb_set(cr.lookup_fields, '{formulary_disruption}', '\"Y\"', true)
+UPDATE edpm.claim_records cr
+SET exclusion_type = 'formulary_exclusion',
+    updated_at = CURRENT_TIMESTAMP,
+    updated_by = 'lambda-formulary-disruption'
 FROM all_matched_ids m
 WHERE cr.record_id = m.record_id;
   `;

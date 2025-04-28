@@ -34,10 +34,16 @@ export const handler = async (event: any) => {
     }
 
     // Step 1: Run the diabetes savings analysis
+    console.log('Starting weight loss savings analysis...');
+    const analysisStart = Date.now();
     const result = await analyzeDiabetesSavings(client, fileId);
+    console.log(`Finished weight loss savings analysis in ${Date.now() - analysisStart} ms`);
     
     // Step 2: Update claim records with diabetes flags
+    console.log('Starting update of weight loss claims...');
+    const updateStart = Date.now();
     await updateDiabetesClaims(client, fileId);
+    console.log(`Finished updating claims in ${Date.now() - updateStart} ms`);
     
     // Step 3: Save results to savings_results table with category "P1_GLP1_Diabetes"
     await saveResultsToDatabase(client, fileId, 'P1_GLP1_Diabetes', result);
@@ -75,65 +81,68 @@ export const handler = async (event: any) => {
 async function analyzeDiabetesSavings(client: Client, fileId: string) {
   const query = `
   WITH base_claims AS (
-  SELECT
-    cr.record_id,
-    cr.file_id,
-    cr.lookup_fields,
-    cr.mapped_fields,
-    LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
-    LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brand_generic_flag,
-    COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
-    COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
-    cr.lookup_fields->>'incumbent_rebate_type' AS rebate_type,
-    cr.mapped_fields->>'member_id' AS member_id
-  FROM edpm.claim_records cr
-  WHERE cr.file_id = $1
-    AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND NOT (cr.lookup_fields ? 'Exclusion Type')
-    AND cr.lookup_fields->>'specialty_indicator' = 'N'
+    SELECT
+      cr.record_id,
+      cr.file_id,
+      LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
+      LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brand_generic_flag,
+      COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
+      COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
+      cr.lookup_fields->>'incumbent_rebate_type' AS rebate_type,
+      cr.mapped_fields->>'member_id' AS member_id
+    FROM edpm.claim_records cr
+    WHERE cr.file_id = $1
+      AND cr.lookup_fields->>'is_in_formulary' = 'true'
+      AND cr.exclusion_type IS NULL
+      AND cr.lookup_fields->>'specialty_indicator' = 'N'
 ),
+ filtered_drugs AS (
+    SELECT
+      dm.ndc11,
+      LEFT(dm.brnd_gnrc, 1) AS brand_generic_flag,
+      dm.gpi2_awp_per_ds,
+      dm.gpi2_rebate_yield
+    FROM edpm.drugs_master dm
+    WHERE dm.gpi4 = '2717'
+  ),
 
-claims_with_costs AS (
-  SELECT
-    bc.brand_generic_flag,
-    bc.member_id,
-    CASE
-      WHEN bc.brand_generic_flag LIKE 'B%' THEN
-        ((dm.gpi2_awp_per_ds * (1 - 0.2044) * bc.days_supply) - bc.member_copay)
-        - (dm.gpi2_awp_per_ds * bc.days_supply *
-           CASE
-             WHEN bc.rebate_type = 'noRebates' THEN 0
-             ELSE dm.gpi2_rebate_yield
-           END)
-      WHEN bc.brand_generic_flag LIKE 'G%' THEN
-        ((dm.gpi2_awp_per_ds * (1 - 0.8739) * bc.days_supply) - bc.member_copay)
-      ELSE NULL
-    END AS net_cost
-  FROM base_claims bc
-  JOIN edpm.drugs_master dm
-    ON bc.ndc11 = dm.ndc11
-   AND bc.brand_generic_flag = LEFT(dm.brnd_gnrc, 1)
-  WHERE dm.gpi4 = '2717'
-),
+  claims_with_costs AS (
+    SELECT
+      bc.brand_generic_flag,
+      bc.member_id,
+      CASE
+        WHEN bc.brand_generic_flag = 'B' THEN
+          ((fd.gpi2_awp_per_ds * (1 - 0.2044) * bc.days_supply) - bc.member_copay)
+          - (fd.gpi2_awp_per_ds * bc.days_supply *
+             CASE WHEN bc.rebate_type = 'noRebates' THEN 0 ELSE fd.gpi2_rebate_yield END)
+        WHEN bc.brand_generic_flag = 'G' THEN
+          ((fd.gpi2_awp_per_ds * (1 - 0.8739) * bc.days_supply) - bc.member_copay)
+        ELSE NULL
+      END AS net_cost
+    FROM base_claims bc
+    JOIN filtered_drugs fd
+      ON bc.ndc11 = fd.ndc11
+     AND bc.brand_generic_flag = fd.brand_generic_flag
+  ),
 
-totals AS (
-  SELECT
-    SUM(CASE WHEN brand_generic_flag LIKE 'B%' THEN net_cost ELSE 0 END) AS brand_cost,
-    SUM(CASE WHEN brand_generic_flag LIKE 'G%' THEN net_cost ELSE 0 END) AS generic_cost,
-    COUNT(*) AS claim_count,
-    COUNT(DISTINCT member_id) AS member_count
-  FROM claims_with_costs
-)
+  totals AS (
+    SELECT
+      SUM(CASE WHEN brand_generic_flag = 'B' THEN net_cost ELSE 0 END) AS brand_cost,
+      SUM(CASE WHEN brand_generic_flag = 'G' THEN net_cost ELSE 0 END) AS generic_cost,
+      COUNT(*) AS claim_count,
+      COUNT(DISTINCT member_id) AS member_count
+    FROM claims_with_costs
+  )
 
-SELECT json_build_object(
-  'Brand Cost', ROUND(brand_cost, 2),
-  'Generic Cost', ROUND(generic_cost, 2),
-  'Claim Count', claim_count,
-  'Member Count', member_count,
-  'Denial Rate', 0.35,
-  'Part 1 Potential Savings', ROUND(((brand_cost + generic_cost) / 2) * 0.35, 2)
-) AS result
-FROM totals;
+  SELECT json_build_object(
+    'Brand Cost', ROUND(brand_cost, 2),
+    'Generic Cost', ROUND(generic_cost, 2),
+    'Claim Count', claim_count,
+    'Member Count', member_count,
+    'Denial Rate', 0.35,
+    'Part 1 Potential Savings', ROUND(((brand_cost + generic_cost) / 2) * 0.35, 2)
+  ) AS result
+  FROM totals;
   `;
 
   try {
@@ -149,28 +158,44 @@ FROM totals;
  * Update claim records with diabetes flags
  */
 async function updateDiabetesClaims(client: Client, fileId: string) {
-  const query = `
-  UPDATE edpm.claim_records cr
-  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('B_GLP1_DB'::text), true)
-  FROM (
-    SELECT cr.record_id
-    FROM claim_records cr
-    JOIN drugs_master dm
-      ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
-     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
-    WHERE cr.file_id = $1
-      AND cr.lookup_fields->>'is_in_formulary' = 'true'
-      AND NOT (cr.lookup_fields ? 'Exclusion Type')
-      AND cr.lookup_fields->>'specialty_indicator' = 'N'
-      AND dm.gpi4 = '2717'
-  ) AS eligible
-  WHERE cr.record_id = eligible.record_id AND cr.file_id=$1;
-  `;
-
   try {
-    const result = await client.query(query, [fileId]);
-    console.log(`Updated ${result.rowCount} claim records with GLP1_WeightLoss_GPI2 exclusion type`);
-    return result.rowCount;
+    // Step 1: First select all eligible record_ids
+    const selectQuery = `
+      SELECT cr_inner.record_id
+      FROM edpm.claim_records cr_inner
+      JOIN edpm.drugs_master dm
+        ON LPAD(TRIM(cr_inner.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+       AND LEFT(cr_inner.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
+      WHERE cr_inner.file_id = $1
+        AND cr_inner.lookup_fields->>'is_in_formulary' = 'true'
+        AND cr_inner.exclusion_type IS NULL
+        AND cr_inner.lookup_fields->>'specialty_indicator' = 'N'
+        AND dm.gpi4 = '2717'
+    `;
+
+    const { rows } = await client.query(selectQuery, [fileId]);
+    const recordIds = rows.map((r: any) => r.record_id);
+
+    if (recordIds.length === 0) {
+      console.log('No claims to update for diabetes.');
+      return 0;
+    }
+
+    console.log(`Found ${recordIds.length} claim records to update.`);
+
+    // Step 2: Then update using WHERE record_id = ANY(array)
+    const updateQuery = `
+      UPDATE edpm.claim_records
+      SET exclusion_type = 'B_GLP1_DB',
+          updated_at = CURRENT_TIMESTAMP,
+          updated_by = 'lambda-diabetes-processor'
+      WHERE record_id = ANY($1)
+    `;
+
+    const updateResult = await client.query(updateQuery, [recordIds]);
+    console.log(`Updated ${updateResult.rowCount} claim records with B_GLP1_DB exclusion_type`);
+    return updateResult.rowCount;
+
   } catch (error) {
     console.error('Error updating diabetes claims:', error);
     throw error;

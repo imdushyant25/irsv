@@ -86,7 +86,7 @@ async function analyzeHdcrSavings(client, fileId) {
   FROM edpm.claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND NOT (cr.lookup_fields ? 'Exclusion Type')
+    AND cr.exclusion_type IS NULL
     AND cr.lookup_fields->>'specialty_indicator' = 'N'
 ),
 
@@ -153,31 +153,42 @@ FROM totals;
  * Update claim records with HDCR flags
  */
 async function updateHdcrClaims(client, fileId) {
-    const query = `
-  UPDATE claim_records cr
-  SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('C_HDCR'::text), true)
-  FROM (
-    SELECT cr.record_id
-    FROM claim_records cr
-    JOIN drugs_master dm
-      ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
-     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
-    WHERE cr.file_id = $1
-      AND cr.lookup_fields->>'is_in_formulary' = 'true'
-      AND cr.lookup_fields->>'specialty_indicator' = 'N'
-      AND NOT (cr.lookup_fields ? 'Exclusion Type')
-      AND (
-        (COALESCE((cr.mapped_fields->>'reprice_gross_cost')::numeric, 0) >= 1000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) <= 30)
-        OR (COALESCE((cr.mapped_fields->>'reprice_gross_cost')::numeric, 0) >= 2000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60)
-        OR (COALESCE((cr.mapped_fields->>'reprice_gross_cost')::numeric, 0) >= 3000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60)
-      )
-  ) AS eligible
-  WHERE cr.record_id = eligible.record_id AND cr.file_id = $1;
-  `;
     try {
-        const result = await client.query(query, [fileId]);
-        console.log(`Updated ${result.rowCount} claim records with HDCR flags`);
-        return result.rowCount;
+        // Step 1: Select record IDs eligible for HDCR update
+        const selectQuery = `
+      SELECT cr.record_id
+      FROM edpm.claim_records cr
+      JOIN edpm.drugs_master dm
+        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+       AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
+      WHERE cr.file_id = $1
+        AND cr.lookup_fields->>'is_in_formulary' = 'true'
+        AND cr.lookup_fields->>'specialty_indicator' = 'N'
+        AND cr.exclusion_type IS NULL
+        AND (
+          (COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) >= 1000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) <= 30)
+          OR (COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) >= 2000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60)
+          OR (COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) >= 3000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60)
+        )
+    `;
+        const { rows } = await client.query(selectQuery, [fileId]);
+        const recordIds = rows.map((r) => r.record_id);
+        if (recordIds.length === 0) {
+            console.log('No claims to update for HDCR.');
+            return 0;
+        }
+        console.log(`Found ${recordIds.length} claim records to update for HDCR.`);
+        // Step 2: Update records using WHERE record_id = ANY(array)
+        const updateQuery = `
+      UPDATE edpm.claim_records
+      SET exclusion_type = 'C_HDCR',
+          updated_at = CURRENT_TIMESTAMP,
+          updated_by = 'lambda-hdcr-processor'
+      WHERE record_id = ANY($1)
+    `;
+        const updateResult = await client.query(updateQuery, [recordIds]);
+        console.log(`Updated ${updateResult.rowCount} claim records with C_HDCR exclusion_type.`);
+        return updateResult.rowCount;
     }
     catch (error) {
         console.error('Error updating HDCR claims:', error);

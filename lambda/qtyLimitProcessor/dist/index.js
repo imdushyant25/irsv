@@ -84,7 +84,7 @@ async function analyzeQuantityLimitsSavings(client, fileId) {
       FROM claim_records cr
       WHERE cr.file_id = $1
         AND cr.lookup_fields->>'is_in_formulary' = 'true'
-        AND NOT (cr.lookup_fields ? 'Exclusion Type')
+        AND cr.exclusion_type IS NULL
     )
     , numeric_fields AS (
       SELECT
@@ -145,24 +145,27 @@ async function analyzeQuantityLimitsSavings(client, fileId) {
 async function updateQuantityLimitsClaims(client, fileId) {
     console.log(`Updating claims with QL_Standard exclusion type for file ${fileId}`);
     const query = `
-    UPDATE claim_records cr
-    SET lookup_fields = jsonb_set(cr.lookup_fields, '{Exclusion Type}', to_jsonb('E_QL'::text), true)
-    FROM (
+    WITH eligible_claims AS (
       SELECT cr.record_id
-      FROM claim_records cr
-      JOIN drugs_master dm
+      FROM edpm.claim_records cr
+      JOIN edpm.drugs_master dm
         ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
       WHERE cr.file_id = $1
         AND dm.is_ql_standard = 'Y'
-        AND NOT (cr.lookup_fields ? 'Exclusion Type')
+        AND cr.exclusion_type IS NULL
         AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 0
         AND (
           (COALESCE((cr.lookup_fields->>'quantity')::numeric, 0) / COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
           > dm.ql_qty_ds
         )
         AND COALESCE((cr.lookup_fields->>'mspan_unit_price')::numeric, 0) > 0
-    ) AS eligible
-    WHERE cr.record_id = eligible.record_id AND cr.file_id = $1;
+    )
+    UPDATE edpm.claim_records cr
+    SET exclusion_type = 'E_QL',
+        updated_at = CURRENT_TIMESTAMP,
+        updated_by = 'lambda-ql-processor'
+    FROM eligible_claims ec
+    WHERE cr.record_id = ec.record_id;
   `;
     try {
         const result = await client.query(query, [fileId]);
