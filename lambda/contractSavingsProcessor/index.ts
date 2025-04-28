@@ -88,7 +88,7 @@ async function analyzeContractSavings(client: Client, fileId: string) {
 
     CASE
       WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B' THEN
-        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0)
+        COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0)
       ELSE
         COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0)
     END AS illuminate_plan_cost,
