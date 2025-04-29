@@ -71,56 +71,69 @@ export const handler = async (event: any) => {
  */
 async function analyzeContractSavings(client: Client, fileId: string) {
   const query = `
-  WITH claim_data AS (
+  WITH claim_sums AS (
   SELECT
     CASE 
+      WHEN cr.exclusion_type = 'A_GLP1_WL' THEN 'GLP-1 Weight Loss'
+      WHEN cr.exclusion_type = 'B_GLP1_DB' THEN 'GLP-1 Diabetes'
+      WHEN cr.exclusion_type = 'C_HDCR' THEN 'HDCR'
+      WHEN cr.exclusion_type = 'D_PA' THEN 'Prior Authorization'
       WHEN cr.exclusion_type IS NULL THEN 'Reprice'
-      ELSE cr.exclusion_type
     END AS exclusion_type,
-
-    CASE
-      WHEN cr.lookup_fields->>'incumbent_rebate_type' = 'noRebates' THEN 
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0)
-      ELSE 
-        COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) -
-        COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0)
-    END AS incumbent_plan_cost,
-
-    CASE
-      WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B' THEN
-        COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0)
-      ELSE
-        COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0)
-    END AS illuminate_plan_cost,
-
-    cr.mapped_fields->>'member_id' AS member_id
-
-  FROM edpm.claim_records cr
+    SUM(COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0)) AS total_plan_cost,
+    SUM(COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0)) AS total_incumbent_rebate,
+    SUM(CASE WHEN cr.exclusion_type IS NULL THEN COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0) ELSE 0 END) AS total_reprice_net_plan_cost,
+    COUNT(DISTINCT cr.mapped_fields->>'member_id') AS member_count,
+    COUNT(*) AS claim_count
+  FROM claim_records cr
   WHERE cr.file_id = $1
-    AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND COALESCE(cr.exclusion_type, '') NOT IN ('Plan', 'E_QL')
+    AND (cr.exclusion_type IN ('A_GLP1_WL', 'B_GLP1_DB', 'C_HDCR', 'D_PA') OR cr.exclusion_type IS NULL)
+  GROUP BY 1
 ),
-grouped AS (
+savings_base AS (
   SELECT
     CASE
-      WHEN exclusion_type = 'A_GLP1_WL' THEN 'GLP-1 Weight Loss'
-      WHEN exclusion_type = 'B_GLP1_DB' THEN 'GLP-1 Diabetes'
-      WHEN exclusion_type = 'C_HDCR'     THEN 'HDCR'
-      WHEN exclusion_type = 'D_PA'       THEN 'Prior Auth'
-      WHEN exclusion_type = 'E_QL'       THEN 'Quantity Limits'
-      ELSE exclusion_type
+      WHEN sr.category = 'P1_GLP1_Wght_Loss' THEN 'GLP-1 Weight Loss'
+      WHEN sr.category = 'P1_GLP1_Diabetes' THEN 'GLP-1 Diabetes'
+      WHEN sr.category = 'hdcr' THEN 'HDCR'
+      WHEN sr.category = 'priorauth' THEN 'Prior Authorization'
     END AS exclusion_type,
-
-    ROUND(SUM(incumbent_plan_cost), 2) AS incumbent_plan_cost,
-    ROUND(SUM(illuminate_plan_cost), 2) AS illuminate_plan_cost,
-    COUNT(DISTINCT member_id) AS member_count,
-    COUNT(*) AS claim_count,
-    ROUND((SUM(incumbent_plan_cost) - SUM(illuminate_plan_cost)) * 0.65, 2) AS gross_savings
-  FROM claim_data
-  GROUP BY exclusion_type
+    (sr.results->>'Brand Cost')::numeric AS brand_cost,
+    (sr.results->>'Generic Cost')::numeric AS generic_cost
+  FROM edpm.savings_results sr
+  WHERE sr.file_id = $1
+    AND sr.category IN ('P1_GLP1_Wght_Loss', 'P1_GLP1_Diabetes', 'hdcr', 'priorauth')
+),
+final_data AS (
+  SELECT
+    cs.exclusion_type,
+    cs.total_plan_cost - cs.total_incumbent_rebate AS incumbent_plan_cost,
+    CASE 
+      WHEN cs.exclusion_type = 'Reprice' THEN cs.total_reprice_net_plan_cost
+      ELSE sb.brand_cost + sb.generic_cost
+    END AS illuminate_plan_cost,
+    cs.member_count,
+    cs.claim_count,
+    CASE 
+      WHEN cs.exclusion_type = 'Reprice' THEN
+        (cs.total_plan_cost - cs.total_incumbent_rebate - cs.total_reprice_net_plan_cost)
+      ELSE
+        (cs.total_plan_cost - cs.total_incumbent_rebate - (sb.brand_cost + sb.generic_cost)) * 0.65
+    END AS gross_savings
+  FROM claim_sums cs
+  LEFT JOIN savings_base sb ON cs.exclusion_type = sb.exclusion_type
 )
-SELECT json_agg(result) AS exclusion_summary
-FROM grouped result;
+SELECT json_agg(
+  json_build_object(
+    'exclusion_type', exclusion_type,
+    'incumbent_plan_cost', ROUND(incumbent_plan_cost, 2),
+    'illuminate_plan_cost', ROUND(illuminate_plan_cost, 2),
+    'member_count', member_count,
+    'claim_count', claim_count,
+    'gross_savings', ROUND(gross_savings, 2)
+  )
+) AS exclusion_summary
+FROM final_data;
   `;
 
   try {
