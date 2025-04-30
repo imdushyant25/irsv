@@ -90,7 +90,6 @@ async function analyzeWeightLossSavings(client, fileId) {
     cr.lookup_fields,
     cr.mapped_fields,
     LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
-    LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brand_generic_flag,
     COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
     COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
     cr.lookup_fields->>'incumbent_rebate_type' AS rebate_type,
@@ -103,42 +102,58 @@ async function analyzeWeightLossSavings(client, fileId) {
     AND cr.lookup_fields->>'px_weight_loss_inj' = 'false'
 ),
 
-filtered_drugs AS (
-  SELECT *
-  FROM edpm.drugs_master
-  WHERE gpi6 IN ('612520', '612525')
+claims_with_gpi4 AS (
+  SELECT
+    bc.*,
+    LEFT(mi.gpi14, 4) AS gpi4
+  FROM base_claims bc
+  JOIN edpm.mspan_ndc_info mi
+    ON bc.ndc11 = mi.ndc11
 ),
 
-claims_with_costs AS (
-  SELECT DISTINCT ON (bc.record_id)
-    bc.brand_generic_flag,
-    bc.member_id,
+filtered_drugs AS (
+  SELECT
+    DISTINCT ON (gpi4, LEFT(brnd_gnrc, 1)) *
+  FROM edpm.drugs_master
+  WHERE gpi6 IN ('612520', '612525')
+    AND specialty_indicator = 'N'
+    AND LEFT(brnd_gnrc, 1) IN ('B', 'G')
+  ORDER BY gpi4, LEFT(brnd_gnrc, 1)
+),
+
+costed_claims AS (
+  SELECT
+    cwg.record_id,
+    cwg.member_id,
+    cwg.days_supply,
+    cwg.member_copay,
+    cwg.rebate_type,
+    LEFT(fd.brnd_gnrc, 1) AS drug_type,
+    fd.gpi4_awp_per_ds,
+    fd.gpi4_rebate_yield,
     CASE
-      WHEN bc.brand_generic_flag LIKE 'B%' THEN
-        ((fd.gpi4_awp_per_ds * (1 - 0.2044) * bc.days_supply) - bc.member_copay)
-        - (fd.gpi4_awp_per_ds * bc.days_supply *
-           CASE
-             WHEN bc.rebate_type = 'noRebates' THEN 0
-             ELSE fd.gpi4_rebate_yield
-           END)
-      WHEN bc.brand_generic_flag LIKE 'G%' THEN
-        ((fd.gpi4_awp_per_ds * (1 - 0.8739) * bc.days_supply) - bc.member_copay)
+      WHEN LEFT(fd.brnd_gnrc, 1) = 'B' THEN
+        ((fd.gpi4_awp_per_ds * (1 - 0.2044) * cwg.days_supply) - cwg.member_copay)
+        - (
+          fd.gpi4_awp_per_ds * cwg.days_supply *
+          CASE WHEN cwg.rebate_type = 'noRebates' THEN 0 ELSE fd.gpi4_rebate_yield END
+        )
+      WHEN LEFT(fd.brnd_gnrc, 1) = 'G' THEN
+        ((fd.gpi4_awp_per_ds * (1 - 0.8739) * cwg.days_supply) - cwg.member_copay)
       ELSE NULL
     END AS net_cost
-  FROM base_claims bc
+  FROM claims_with_gpi4 cwg
   JOIN filtered_drugs fd
-    ON bc.ndc11 = fd.ndc11
-   AND bc.brand_generic_flag = LEFT(fd.brnd_gnrc, 1)
-  ORDER BY bc.record_id
+    ON cwg.gpi4 = fd.gpi4
 ),
 
 totals AS (
   SELECT
-    SUM(CASE WHEN brand_generic_flag LIKE 'B%' THEN net_cost ELSE 0 END) AS brand_cost,
-    SUM(CASE WHEN brand_generic_flag LIKE 'G%' THEN net_cost ELSE 0 END) AS generic_cost,
-    COUNT(*) AS claim_count,
+    SUM(CASE WHEN drug_type = 'B' THEN net_cost ELSE 0 END) AS brand_cost,
+    SUM(CASE WHEN drug_type = 'G' THEN net_cost ELSE 0 END) AS generic_cost,
+    COUNT(DISTINCT record_id) AS claim_count,
     COUNT(DISTINCT member_id) AS member_count
-  FROM claims_with_costs
+  FROM costed_claims
 )
 
 SELECT json_build_object(

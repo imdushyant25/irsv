@@ -74,10 +74,7 @@ async function analyzeHdcrSavings(client, fileId) {
   SELECT
     cr.record_id,
     cr.file_id,
-    cr.lookup_fields,
-    cr.mapped_fields,
     LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
-    LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brand_generic_flag,
     COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
     COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
     COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) AS plan_cost,
@@ -88,46 +85,77 @@ async function analyzeHdcrSavings(client, fileId) {
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
     AND cr.exclusion_type IS NULL
     AND cr.lookup_fields->>'specialty_indicator' = 'N'
+    AND (
+      (COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) >= 1000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) <= 30)
+      OR (COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) >= 2000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60)
+      OR (COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) >= 3000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60)
+    )
 ),
 
-hdcr_filtered AS (
-  SELECT *
-  FROM base_claims
-  WHERE 
-    (plan_cost >= 1000 AND days_supply <= 30)
-    OR (plan_cost >= 2000 AND days_supply BETWEEN 31 AND 60)
-    OR (plan_cost >= 3000 AND days_supply > 60)
-),
-
-claims_with_costs AS (
+claims_with_gpi6 AS (
   SELECT
-    bc.brand_generic_flag,
-    bc.member_id,
-    CASE
-      WHEN bc.brand_generic_flag LIKE 'B%' THEN
-        ((dm.gpi6_awp_per_ds * (1 - 0.2044) * bc.days_supply) - bc.member_copay)
-        - (dm.gpi6_awp_per_ds * bc.days_supply *
-           CASE
-             WHEN bc.rebate_type = 'noRebates' THEN 0
-             ELSE dm.gpi6_rebate_yield
-           END)
-      WHEN bc.brand_generic_flag LIKE 'G%' THEN
-        ((dm.gpi6_awp_per_ds * (1 - 0.8739) * bc.days_supply) - bc.member_copay)
-      ELSE NULL
-    END AS net_cost
-  FROM hdcr_filtered bc
-  JOIN edpm.drugs_master dm
-    ON bc.ndc11 = dm.ndc11
-   AND bc.brand_generic_flag = LEFT(dm.brnd_gnrc, 1)
+    bc.*,
+    dm.gpi6
+  FROM base_claims bc
+  JOIN edpm.drugs_master dm ON bc.ndc11 = dm.ndc11
+),
+
+-- Step 1: one brand and one generic per gpi6
+filtered_drugs AS (
+  SELECT DISTINCT ON (gpi6, LEFT(brnd_gnrc, 1))
+    gpi6,
+    LEFT(brnd_gnrc, 1) AS drug_type,
+    gpi6_awp_per_ds,
+    gpi6_rebate_yield
+  FROM edpm.drugs_master
+  WHERE LEFT(brnd_gnrc, 1) IN ('B', 'G')
+  ORDER BY gpi6, LEFT(brnd_gnrc, 1)
+),
+
+-- Step 2: pivot to one row per gpi6
+drug_data_by_gpi6 AS (
+  SELECT
+    gpi6,
+    MAX(CASE WHEN drug_type = 'B' THEN gpi6_awp_per_ds END) AS brand_awp_per_ds,
+    MAX(CASE WHEN drug_type = 'B' THEN gpi6_rebate_yield END) AS brand_rebate_yield,
+    MAX(CASE WHEN drug_type = 'G' THEN gpi6_awp_per_ds END) AS generic_awp_per_ds
+  FROM filtered_drugs
+  GROUP BY gpi6
+),
+
+claim_with_costs AS (
+  SELECT
+    cg.record_id,
+    cg.member_id,
+    cg.gpi6,
+    cg.days_supply,
+    cg.member_copay,
+    cg.rebate_type,
+
+    -- Brand net cost
+    GREATEST(
+      ((dd.brand_awp_per_ds * (1 - 0.2044) * cg.days_supply) - cg.member_copay)
+      - (dd.brand_awp_per_ds * cg.days_supply *
+         CASE WHEN cg.rebate_type = 'noRebates' THEN 0 ELSE dd.brand_rebate_yield END),
+      0
+    ) AS brand_net_cost,
+
+    -- Generic net cost
+    GREATEST(
+      ((dd.generic_awp_per_ds * (1 - 0.8739) * cg.days_supply) - cg.member_copay),
+      0
+    ) AS generic_net_cost
+  FROM claims_with_gpi6 cg
+  LEFT JOIN drug_data_by_gpi6 dd ON cg.gpi6 = dd.gpi6
 ),
 
 totals AS (
   SELECT
-    SUM(CASE WHEN brand_generic_flag LIKE 'B%' THEN net_cost ELSE 0 END) AS brand_cost,
-    SUM(CASE WHEN brand_generic_flag LIKE 'G%' THEN net_cost ELSE 0 END) AS generic_cost,
+    SUM(brand_net_cost) AS brand_cost,
+    SUM(generic_net_cost) AS generic_cost,
     COUNT(*) AS claim_count,
     COUNT(DISTINCT member_id) AS member_count
-  FROM claims_with_costs
+  FROM claim_with_costs
 )
 
 SELECT json_build_object(

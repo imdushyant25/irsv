@@ -74,70 +74,97 @@ async function analyzePriorAuthSavings(client, fileId) {
   SELECT
     cr.record_id,
     cr.file_id,
-    cr.lookup_fields,
-    cr.mapped_fields,
     LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
-    LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brand_generic_flag,
     COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
     COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
     cr.lookup_fields->>'specialty_indicator' AS specialty_indicator,
     cr.lookup_fields->>'incumbent_rebate_type' AS rebate_type,
     cr.mapped_fields->>'member_id' AS member_id
   FROM edpm.claim_records cr
-  WHERE cr.file_id = $1
-    AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND cr.exclusion_type IS NULL
+JOIN edpm.drugs_master dm
+  ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+ AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
+WHERE cr.file_id = $1
+  AND cr.lookup_fields->>'is_in_formulary' = 'true'
+  AND cr.exclusion_type IS NULL
+  AND dm.is_pa = 'Y'
 ),
 
-claims_with_costs AS (
+claims_with_gpi6 AS (
   SELECT
-    bc.brand_generic_flag,
-    bc.member_id,
-    bc.specialty_indicator,
-    CASE
-      WHEN bc.specialty_indicator = 'Y' AND bc.brand_generic_flag LIKE 'B%' THEN
-        ((dm.gpi6_awp_per_ds * (1 - dm.gpi6_avg_disc) * bc.days_supply) - bc.member_copay)
-        - (dm.gpi6_awp_per_ds * bc.days_supply *
-           CASE WHEN bc.rebate_type = 'noRebates' THEN 0 ELSE dm.gpi6_rebate_yield END)
-
-      WHEN bc.specialty_indicator = 'Y' AND bc.brand_generic_flag LIKE 'G%' THEN
-        ((dm.gpi6_awp_per_ds * (1 - dm.gpi6_avg_disc) * bc.days_supply) - bc.member_copay)
-
-      WHEN bc.specialty_indicator <> 'Y' AND bc.brand_generic_flag LIKE 'B%' THEN
-        ((dm.gpi6_awp_per_ds * (1 - dm.gpi6_avg_disc) * bc.days_supply) - bc.member_copay)
-        - (dm.gpi6_awp_per_ds * bc.days_supply *
-           CASE WHEN bc.rebate_type = 'noRebates' THEN 0 ELSE dm.gpi6_rebate_yield END)
-
-      WHEN bc.specialty_indicator <> 'Y' AND bc.brand_generic_flag LIKE 'G%' THEN
-        ((dm.gpi6_awp_per_ds * (1 - dm.gpi6_avg_disc) * bc.days_supply) - bc.member_copay)
-
-      ELSE NULL
-    END AS net_cost
+    bc.*,
+    dm.gpi6
   FROM base_claims bc
-  JOIN edpm.drugs_master dm
-    ON bc.ndc11 = dm.ndc11
-   AND bc.brand_generic_flag = LEFT(dm.brnd_gnrc, 1)
-  WHERE dm.is_pa = 'Y'
+  JOIN edpm.drugs_master dm ON bc.ndc11 = dm.ndc11
 ),
 
-totals AS (
+filtered_drugs AS (
+  SELECT DISTINCT ON (gpi6, LEFT(brnd_gnrc, 1), specialty_indicator)
+    gpi6,
+    LEFT(brnd_gnrc, 1) AS drug_type,
+    specialty_indicator,
+    gpi6_awp_per_ds,
+    gpi6_avg_disc,
+    gpi6_rebate_yield
+  FROM edpm.drugs_master
+  WHERE LEFT(brnd_gnrc, 1) IN ('B', 'G')
+    AND is_pa = 'Y'
+  ORDER BY gpi6, LEFT(brnd_gnrc, 1), specialty_indicator
+),
+
+drug_data_by_gpi6 AS (
   SELECT
-    SUM(CASE WHEN brand_generic_flag LIKE 'B%' THEN net_cost ELSE 0 END) AS brand_cost,
-    SUM(CASE WHEN brand_generic_flag LIKE 'G%' THEN net_cost ELSE 0 END) AS generic_cost,
-    COUNT(*) AS claim_count,
-    COUNT(DISTINCT member_id) AS member_count
-  FROM claims_with_costs
+    gpi6,
+    specialty_indicator,
+    MAX(CASE WHEN drug_type = 'B' THEN gpi6_awp_per_ds END) AS brand_awp_per_ds,
+    MAX(CASE WHEN drug_type = 'B' THEN gpi6_avg_disc END) AS brand_avg_disc,
+    MAX(CASE WHEN drug_type = 'B' THEN gpi6_rebate_yield END) AS brand_rebate_yield,
+    MAX(CASE WHEN drug_type = 'G' THEN gpi6_awp_per_ds END) AS generic_awp_per_ds,
+    MAX(CASE WHEN drug_type = 'G' THEN gpi6_avg_disc END) AS generic_avg_disc
+  FROM filtered_drugs
+  GROUP BY gpi6, specialty_indicator
+),
+
+claim_with_costs AS (
+  SELECT
+    cg.record_id,
+    cg.member_id,
+    cg.specialty_indicator,
+    cg.days_supply,
+    cg.member_copay,
+    cg.rebate_type,
+
+    -- Brand cost with specialty logic
+    GREATEST(
+      ((dd.brand_awp_per_ds * (1 - 
+        CASE WHEN cg.specialty_indicator = 'N' THEN 0.2044 ELSE dd.brand_avg_disc END
+      ) * cg.days_supply) - cg.member_copay)
+      - (dd.brand_awp_per_ds * cg.days_supply *
+         CASE WHEN cg.rebate_type = 'noRebates' THEN 0 ELSE dd.brand_rebate_yield END),
+      0
+    ) AS brand_net_cost,
+
+    -- Generic cost with specialty logic
+    GREATEST(
+      ((dd.generic_awp_per_ds * (1 - 
+        CASE WHEN cg.specialty_indicator = 'N' THEN 0.8739 ELSE dd.generic_avg_disc END
+      ) * cg.days_supply) - cg.member_copay),
+      0
+    ) AS generic_net_cost
+  FROM claims_with_gpi6 cg
+  LEFT JOIN drug_data_by_gpi6 dd
+    ON cg.gpi6 = dd.gpi6 AND cg.specialty_indicator = dd.specialty_indicator
 )
 
 SELECT json_build_object(
-  'Brand Cost', ROUND(brand_cost, 2),
-  'Generic Cost', ROUND(generic_cost, 2),
-  'Claim Count', claim_count,
-  'Member Count', member_count,
+  'Brand Cost', ROUND(SUM(brand_net_cost), 2),
+  'Generic Cost', ROUND(SUM(generic_net_cost), 2),
+  'Claim Count', COUNT(*),
+  'Member Count', COUNT(DISTINCT member_id),
   'Denial Rate', 0.35,
-  'Part 1 Potential Savings', ROUND(((brand_cost + generic_cost) / 2) * 0.35, 2)
+  'Part 1 Potential Savings', ROUND(((SUM(brand_net_cost) + SUM(generic_net_cost)) / 2) * 0.35, 2)
 ) AS result
-FROM totals;
+FROM claim_with_costs;
   `;
     try {
         const result = await client.query(query, [fileId]);
