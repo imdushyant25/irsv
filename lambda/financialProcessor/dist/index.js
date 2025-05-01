@@ -122,6 +122,7 @@ async function analyzeHdhpPreventive(client, fileId) {
       LEFT JOIN drugs_master dm
         ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
       WHERE cr.file_id = $1
+      AND cr.lookup_fields->>'is_in_formulary' = 'true'
     ),
     qualified_claims AS (
       SELECT *
@@ -179,6 +180,7 @@ async function analyzeAcaPreventive(client, fileId) {
       LEFT JOIN drugs_master dm
         ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
       WHERE cr.file_id = $1
+      AND cr.lookup_fields->>'is_in_formulary' = 'true'
     ),
     qualified_claims AS (
       SELECT *
@@ -235,6 +237,7 @@ async function analyzeRebateFinancial(client, fileId) {
         ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
       WHERE cr.file_id = $1
         AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B' -- Only brand drugs
+        AND cr.lookup_fields->>'is_in_formulary' = 'true'
     ),
     eligible_claims AS (
       SELECT *
@@ -273,6 +276,7 @@ async function analyzeRdsFinancial(client, fileId) {
       FROM claim_records cr
       WHERE cr.file_id = $1
         AND COALESCE((cr.dynamic_fields->'ageEnrichment'->>'ageAtFillDate')::int, 0) >= 65
+        AND cr.lookup_fields->>'is_in_formulary' = 'true'
     ),
     per_member_costs AS (
       SELECT
@@ -326,6 +330,7 @@ async function analyzePapFinancial(client, fileId) {
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'pap' = 'Y'
     AND cr.exclusion_type = 'Plan'
+    AND cr.lookup_fields->>'is_in_formulary' = 'true'
 ),
 pap_metrics AS (
   SELECT
@@ -436,6 +441,7 @@ async function analyzeMaintenanceAcute(client, fileId) {
       JOIN mspan_ndc_info mni
         ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = mni.ndc11
       WHERE cr.file_id = $1
+      AND cr.lookup_fields->>'is_in_formulary' = 'true'
     ),
     aggregated AS (
       SELECT
@@ -480,6 +486,7 @@ async function analyzeWeightBased(client, fileId) {
       JOIN cci_weight_based cci 
         ON cci.ndc11 = LPAD(cr.lookup_fields->>'ndc11', 11, '0')
       WHERE cr.file_id = $1
+      AND cr.lookup_fields->>'is_in_formulary' = 'true'
     ),
     summary AS (
       SELECT 
@@ -519,6 +526,7 @@ async function analyzeMcap(client, fileId) {
       JOIN drugs_master dm ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
       WHERE cr.lookup_fields->>'mcap' = 'Y'
         AND cr.file_id = $1
+        AND cr.lookup_fields->>'is_in_formulary' = 'true'
     ),
     savings_with_fees AS (
       SELECT
@@ -692,7 +700,8 @@ async function analyzeParityPricing(client, fileId) {
     FROM claim_records cr
     JOIN cci_parity_priced cpp
         ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = cpp.ndc11
-    WHERE cr.file_id = $1;
+    WHERE cr.file_id = $1
+    AND cr.lookup_fields->>'is_in_formulary' = 'true';
   `;
     try {
         const result = await client.query(query, [fileId]);
