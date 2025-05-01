@@ -79,54 +79,64 @@ async function analyzeQuantityLimitsSavings(client: Client, fileId: string) {
   
   const query = `
     WITH base_claims AS (
-      SELECT
-        cr.record_id,
-        cr.file_id,
-        cr.lookup_fields,
-        cr.mapped_fields,
-        LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
-        cr.lookup_fields->>'quantity' AS raw_quantity,
-        cr.lookup_fields->>'days_supply' AS raw_days_supply,
-        cr.lookup_fields->>'mspan_unit_price' AS raw_unit_price,
-        cr.mapped_fields->>'member_id' AS member_id
-      FROM claim_records cr
-      WHERE cr.file_id = $1
-        AND cr.lookup_fields->>'is_in_formulary' = 'true'
-        AND cr.exclusion_type IS NULL
-    )
-    , numeric_fields AS (
-      SELECT
-        bc.record_id,
-        bc.file_id,
-        bc.member_id,
-        COALESCE(bc.raw_quantity::numeric, 0) AS quantity,
-        COALESCE(bc.raw_days_supply::numeric, 0) AS days_supply,
-        COALESCE(bc.raw_unit_price::numeric, 0) AS mspan_unit_price,
-        bc.ndc11
-      FROM base_claims bc
-    )
-    , claims_with_costs AS (
-      SELECT
-        nf.record_id,
-        nf.member_id,
-        nf.quantity,
-        nf.days_supply,
-        nf.mspan_unit_price,
-        dm.ql_qty_ds,
-        ((nf.quantity / nf.days_supply) - dm.ql_qty_ds) * nf.mspan_unit_price AS potential_savings
-        FROM numeric_fields nf
-        JOIN drugs_master dm
-          ON nf.ndc11 = dm.ndc11
-        WHERE dm.is_ql_standard = 'Y'
-        AND nf.days_supply > 0
-        AND (nf.quantity / nf.days_supply) > dm.ql_qty_ds
-    )
-    SELECT json_build_object(
-      'Potential Savings', ROUND(SUM(potential_savings), 2),
-      'Claim Count', COUNT(*),
-      'Member Count', COUNT(DISTINCT member_id)
-    ) AS result
-    FROM claims_with_costs;
+  SELECT
+    cr.record_id,
+    cr.file_id,
+    cr.lookup_fields,
+    cr.mapped_fields,
+    LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
+    cr.lookup_fields->>'quantity' AS raw_quantity,
+    cr.lookup_fields->>'days_supply' AS raw_days_supply,
+    cr.mapped_fields->>'plan_cost' AS raw_plan_cost,
+    cr.lookup_fields->>'incumbent_rebate' AS raw_incumbent_rebate,
+    cr.mapped_fields->>'member_id' AS member_id,
+    dm.is_ql_standard,
+    dm.ql_qty_ds
+  FROM claim_records cr
+  JOIN drugs_master dm ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+  WHERE cr.file_id = $1
+    AND cr.lookup_fields->>'is_in_formulary' = 'true'
+    AND cr.exclusion_type IS NULL
+    AND dm.is_ql_standard = 'Y'
+    AND (cr.lookup_fields->>'days_supply')::numeric > 0
+    AND ((cr.lookup_fields->>'quantity')::numeric / NULLIF((cr.lookup_fields->>'days_supply')::numeric, 0)) > dm.ql_qty_ds
+),
+numeric_fields AS (
+  SELECT
+    bc.record_id,
+    bc.file_id,
+    bc.member_id,
+    COALESCE(bc.raw_quantity::numeric, 0) AS quantity,
+    COALESCE(bc.raw_days_supply::numeric, 0) AS days_supply,
+    COALESCE(bc.raw_plan_cost::numeric, 0) AS plan_cost,
+    COALESCE(bc.raw_incumbent_rebate::numeric, 0) AS incumbent_rebate,
+    bc.ndc11,
+    COALESCE(bc.ql_qty_ds::numeric, 0) AS ql_qty_ds
+  FROM base_claims bc
+),
+claims_with_costs AS (
+  SELECT
+    nf.record_id,
+    nf.member_id,
+    nf.quantity,
+    nf.days_supply,
+    nf.plan_cost,
+    nf.incumbent_rebate,
+    nf.ql_qty_ds,
+    -- Full savings formula applied per claim
+    COALESCE(
+      ((nf.plan_cost - nf.incumbent_rebate) / NULLIF(nf.quantity, 0)) 
+      * ((nf.quantity / nf.days_supply) - nf.ql_qty_ds) 
+      * nf.days_supply,
+    0) AS potential_savings
+  FROM numeric_fields nf
+)
+SELECT json_build_object(
+  'Potential Savings', ROUND(SUM(potential_savings), 2),
+  'Claim Count', COUNT(*),
+  'Member Count', COUNT(DISTINCT member_id)
+) AS result
+FROM claims_with_costs;
   `;
   
   try {
@@ -158,27 +168,25 @@ async function updateQuantityLimitsClaims(client: Client, fileId: string) {
   console.log(`Updating claims with QL_Standard exclusion type for file ${fileId}`);
   
   const query = `
-    WITH eligible_claims AS (
-      SELECT cr.record_id
-      FROM edpm.claim_records cr
-      JOIN edpm.drugs_master dm
-        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
-      WHERE cr.file_id = $1
-        AND dm.is_ql_standard = 'Y'
-        AND cr.exclusion_type IS NULL
-        AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 0
-        AND (
-          (COALESCE((cr.lookup_fields->>'quantity')::numeric, 0) / COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
-          > dm.ql_qty_ds
-        )
-        AND COALESCE((cr.lookup_fields->>'mspan_unit_price')::numeric, 0) > 0
-    )
-    UPDATE edpm.claim_records cr
-    SET exclusion_type = 'E_QL',
-        updated_at = CURRENT_TIMESTAMP,
-        updated_by = 'lambda-ql-processor'
-    FROM eligible_claims ec
-    WHERE cr.record_id = ec.record_id;
+    WITH base_claims AS (
+  SELECT cr.record_id
+  FROM edpm.claim_records cr
+  JOIN edpm.drugs_master dm
+    ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+  WHERE cr.file_id = $1
+    AND cr.lookup_fields->>'is_in_formulary' = 'true'
+    AND cr.exclusion_type IS NULL
+    AND dm.is_ql_standard = 'Y'
+    AND (cr.lookup_fields->>'days_supply')::numeric > 0
+    AND ((cr.lookup_fields->>'quantity')::numeric / NULLIF((cr.lookup_fields->>'days_supply')::numeric, 0)) > dm.ql_qty_ds
+    AND (cr.lookup_fields->>'mspan_unit_price')::numeric > 0
+)
+UPDATE edpm.claim_records cr
+SET exclusion_type = 'E_QL',
+    updated_at = CURRENT_TIMESTAMP,
+    updated_by = 'lambda-ql-processor'
+FROM base_claims bc
+WHERE cr.record_id = bc.record_id;
   `;
   
   try {
