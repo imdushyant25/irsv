@@ -83,11 +83,12 @@ async function analyzeHdcrSavings(client: Client, fileId: string) {
     COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
     COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) AS plan_cost,
     cr.lookup_fields->>'incumbent_rebate_type' AS rebate_type,
-    cr.mapped_fields->>'member_id' AS member_id
+    cr.mapped_fields->>'member_id' AS member_id,
+    LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brnd_gnrc_flag
   FROM edpm.claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND cr.exclusion_type IS NULL
+    AND cr.exclusion_type is NULL
     AND cr.lookup_fields->>'specialty_indicator' = 'N'
     AND (
       (COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0) >= 1000 AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) <= 30)
@@ -104,7 +105,6 @@ claims_with_gpi6 AS (
   JOIN edpm.drugs_master dm ON bc.ndc11 = dm.ndc11
 ),
 
--- Step 1: one brand and one generic per gpi6
 filtered_drugs AS (
   SELECT DISTINCT ON (gpi6, LEFT(brnd_gnrc, 1))
     gpi6,
@@ -116,7 +116,6 @@ filtered_drugs AS (
   ORDER BY gpi6, LEFT(brnd_gnrc, 1)
 ),
 
--- Step 2: pivot to one row per gpi6
 drug_data_by_gpi6 AS (
   SELECT
     gpi6,
@@ -135,8 +134,9 @@ claim_with_costs AS (
     cg.days_supply,
     cg.member_copay,
     cg.rebate_type,
+    cg.brnd_gnrc_flag,
 
-    -- Brand net cost
+    -- Brand net cost (model logic)
     GREATEST(
       ((dd.brand_awp_per_ds * (1 - 0.2044) * cg.days_supply) - cg.member_copay)
       - (dd.brand_awp_per_ds * cg.days_supply *
@@ -144,11 +144,30 @@ claim_with_costs AS (
       0
     ) AS brand_net_cost,
 
-    -- Generic net cost
+    -- Generic net cost (model logic)
     GREATEST(
       ((dd.generic_awp_per_ds * (1 - 0.8739) * cg.days_supply) - cg.member_copay),
       0
-    ) AS generic_net_cost
+    ) AS generic_net_cost,
+
+    -- Actual brand cost: only when claim is brand
+    CASE WHEN cg.brnd_gnrc_flag = 'B' THEN
+      GREATEST(
+        ((dd.brand_awp_per_ds * (1 - 0.2044) * cg.days_supply) - cg.member_copay)
+        - (dd.brand_awp_per_ds * cg.days_supply *
+           CASE WHEN cg.rebate_type = 'noRebates' THEN 0 ELSE dd.brand_rebate_yield END),
+        0
+      )
+    ELSE 0 END AS actual_brand_cost,
+
+    -- Actual generic cost: only when claim is generic
+    CASE WHEN cg.brnd_gnrc_flag = 'G' THEN
+      GREATEST(
+        ((dd.generic_awp_per_ds * (1 - 0.8739) * cg.days_supply) - cg.member_copay),
+        0
+      )
+    ELSE 0 END AS actual_generic_cost
+
   FROM claims_with_gpi6 cg
   LEFT JOIN drug_data_by_gpi6 dd ON cg.gpi6 = dd.gpi6
 ),
@@ -157,6 +176,8 @@ totals AS (
   SELECT
     SUM(brand_net_cost) AS brand_cost,
     SUM(generic_net_cost) AS generic_cost,
+    SUM(actual_brand_cost) AS actual_brand_cost,
+    SUM(actual_generic_cost) AS actual_generic_cost,
     COUNT(*) AS claim_count,
     COUNT(DISTINCT member_id) AS member_count
   FROM claim_with_costs
@@ -165,6 +186,8 @@ totals AS (
 SELECT json_build_object(
   'Brand Cost', ROUND(brand_cost, 2),
   'Generic Cost', ROUND(generic_cost, 2),
+  'Brand Cost CSV', ROUND(actual_brand_cost, 2),
+  'Generic Cost CSV', ROUND(actual_generic_cost, 2),
   'Claim Count', claim_count,
   'Member Count', member_count,
   'Denial Rate', 0.35,

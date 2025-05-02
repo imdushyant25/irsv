@@ -98,8 +98,8 @@ savings_base AS (
       WHEN sr.category = 'hdcr' THEN 'HDCR'
       WHEN sr.category = 'priorauth' THEN 'Prior Authorization'
     END AS exclusion_type,
-    (sr.results->>'Brand Cost')::numeric AS brand_cost,
-    (sr.results->>'Generic Cost')::numeric AS generic_cost
+    (sr.results->>'Brand Cost CSV')::numeric AS brand_cost,
+    (sr.results->>'Generic Cost CSV')::numeric AS generic_cost
   FROM edpm.savings_results sr
   WHERE sr.file_id = $1
     AND sr.category IN ('P1_GLP1_Wght_Loss', 'P1_GLP1_Diabetes', 'hdcr', 'priorauth')

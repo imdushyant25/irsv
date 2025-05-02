@@ -98,11 +98,12 @@ async function analyzeWeightLossSavings(client: Client, fileId: string) {
     COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) AS days_supply,
     COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
     cr.lookup_fields->>'incumbent_rebate_type' AS rebate_type,
-    cr.mapped_fields->>'member_id' AS member_id
+    cr.mapped_fields->>'member_id' AS member_id,
+    LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brnd_gnrc_flag
   FROM edpm.claim_records cr
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    AND cr.exclusion_type IS NULL
+    AND cr.exclusion_type is NULL
     AND cr.lookup_fields->>'specialty_indicator' = 'N'
     AND cr.lookup_fields->>'px_weight_loss_inj' = 'false'
 ),
@@ -133,6 +134,7 @@ costed_claims AS (
     cwg.days_supply,
     cwg.member_copay,
     cwg.rebate_type,
+    cwg.brnd_gnrc_flag,
     LEFT(fd.brnd_gnrc, 1) AS drug_type,
     fd.gpi4_awp_per_ds,
     fd.gpi4_rebate_yield,
@@ -146,7 +148,28 @@ costed_claims AS (
       WHEN LEFT(fd.brnd_gnrc, 1) = 'G' THEN
         ((fd.gpi4_awp_per_ds * (1 - 0.8739) * cwg.days_supply) - cwg.member_copay)
       ELSE NULL
-    END AS net_cost
+    END AS net_cost,
+
+   
+    CASE WHEN cwg.brnd_gnrc_flag = 'B' THEN
+      CASE
+        WHEN LEFT(fd.brnd_gnrc, 1) = 'B' THEN
+          ((fd.gpi4_awp_per_ds * (1 - 0.2044) * cwg.days_supply) - cwg.member_copay)
+          - (
+            fd.gpi4_awp_per_ds * cwg.days_supply *
+            CASE WHEN cwg.rebate_type = 'noRebates' THEN 0 ELSE fd.gpi4_rebate_yield END
+          )
+        ELSE 0
+      END
+    ELSE 0 END AS actual_brand_cost,
+
+    CASE WHEN cwg.brnd_gnrc_flag = 'G' THEN
+      CASE
+        WHEN LEFT(fd.brnd_gnrc, 1) = 'G' THEN
+          ((fd.gpi4_awp_per_ds * (1 - 0.8739) * cwg.days_supply) - cwg.member_copay)
+        ELSE 0
+      END
+    ELSE 0 END AS actual_generic_cost
   FROM claims_with_gpi4 cwg
   JOIN filtered_drugs fd
     ON cwg.gpi4 = fd.gpi4
@@ -156,6 +179,8 @@ totals AS (
   SELECT
     SUM(CASE WHEN drug_type = 'B' THEN net_cost ELSE 0 END) AS brand_cost,
     SUM(CASE WHEN drug_type = 'G' THEN net_cost ELSE 0 END) AS generic_cost,
+    SUM(actual_brand_cost) AS actual_brand_cost,
+    SUM(actual_generic_cost) AS actual_generic_cost,
     COUNT(DISTINCT record_id) AS claim_count,
     COUNT(DISTINCT member_id) AS member_count
   FROM costed_claims
@@ -164,6 +189,8 @@ totals AS (
 SELECT json_build_object(
   'Brand Cost', ROUND(brand_cost, 2),
   'Generic Cost', ROUND(generic_cost, 2),
+  'Brand Cost CSV', ROUND(actual_brand_cost, 2),
+  'Generic Cost CSV', ROUND(actual_generic_cost, 2),
   'Claim Count', claim_count,
   'Member Count', member_count,
   'Denial Rate', 0.35,

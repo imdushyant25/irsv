@@ -79,6 +79,7 @@ async function analyzePriorAuthSavings(client, fileId) {
     COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
     cr.lookup_fields->>'specialty_indicator' AS specialty_indicator,
     cr.lookup_fields->>'incumbent_rebate_type' AS rebate_type,
+    LEFT(cr.lookup_fields->>'brnd_gnrc', 1) AS brnd_gnrc_flag,
     cr.mapped_fields->>'member_id' AS member_id
   FROM edpm.claim_records cr
 JOIN edpm.drugs_master dm
@@ -86,7 +87,7 @@ JOIN edpm.drugs_master dm
  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = LEFT(dm.brnd_gnrc, 1)
 WHERE cr.file_id = $1
   AND cr.lookup_fields->>'is_in_formulary' = 'true'
-  AND cr.exclusion_type IS NULL
+  AND cr.exclusion_type is NULL
   AND dm.is_pa = 'Y'
 ),
 
@@ -133,8 +134,9 @@ claim_with_costs AS (
     cg.days_supply,
     cg.member_copay,
     cg.rebate_type,
+    cg.brnd_gnrc_flag,
 
-    -- Brand cost with specialty logic
+    -- Existing logic
     GREATEST(
       ((dd.brand_awp_per_ds * (1 - 
         CASE WHEN cg.specialty_indicator = 'N' THEN 0.2044 ELSE dd.brand_avg_disc END
@@ -144,13 +146,32 @@ claim_with_costs AS (
       0
     ) AS brand_net_cost,
 
-    -- Generic cost with specialty logic
     GREATEST(
       ((dd.generic_awp_per_ds * (1 - 
         CASE WHEN cg.specialty_indicator = 'N' THEN 0.8739 ELSE dd.generic_avg_disc END
       ) * cg.days_supply) - cg.member_copay),
       0
-    ) AS generic_net_cost
+    ) AS generic_net_cost,
+
+ 
+    CASE WHEN cg.brnd_gnrc_flag = 'B' THEN
+      GREATEST(
+        ((dd.brand_awp_per_ds * (1 - 
+          CASE WHEN cg.specialty_indicator = 'N' THEN 0.2044 ELSE dd.brand_avg_disc END
+        ) * cg.days_supply) - cg.member_copay)
+        - (dd.brand_awp_per_ds * cg.days_supply *
+           CASE WHEN cg.rebate_type = 'noRebates' THEN 0 ELSE dd.brand_rebate_yield END),
+        0
+      ) ELSE 0 END AS actual_brand_cost,
+
+    CASE WHEN cg.brnd_gnrc_flag = 'G' THEN
+      GREATEST(
+        ((dd.generic_awp_per_ds * (1 - 
+          CASE WHEN cg.specialty_indicator = 'N' THEN 0.8739 ELSE dd.generic_avg_disc END
+        ) * cg.days_supply) - cg.member_copay),
+        0
+      ) ELSE 0 END AS actual_generic_cost
+
   FROM claims_with_gpi6 cg
   LEFT JOIN drug_data_by_gpi6 dd
     ON cg.gpi6 = dd.gpi6 AND cg.specialty_indicator = dd.specialty_indicator
@@ -159,6 +180,8 @@ claim_with_costs AS (
 SELECT json_build_object(
   'Brand Cost', ROUND(SUM(brand_net_cost), 2),
   'Generic Cost', ROUND(SUM(generic_net_cost), 2),
+  'Brand Cost CSV', ROUND(SUM(actual_brand_cost), 2),
+  'Generic Cost CSV', ROUND(SUM(actual_generic_cost), 2),
   'Claim Count', COUNT(*),
   'Member Count', COUNT(DISTINCT member_id),
   'Denial Rate', 0.35,
