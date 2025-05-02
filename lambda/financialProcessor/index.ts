@@ -277,39 +277,35 @@ async function analyzeRebateFinancial(client: Client, fileId: string) {
  */
 async function analyzeRdsFinancial(client: Client, fileId: string) {
   const query = `
-    WITH rds_candidates AS (
-      SELECT
-        cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost
-      FROM claim_records cr
-      WHERE cr.file_id = $1
-        AND COALESCE((cr.dynamic_fields->'ageEnrichment'->>'ageAtFillDate')::int, 0) >= 65
-        AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    ),
-    per_member_costs AS (
-      SELECT
-        member_id,
-        SUM(plan_cost) AS total_cost
-      FROM rds_candidates
-      GROUP BY member_id
-    ),
-    eligible_members AS (
-      SELECT
-        member_id,
-        CASE
-          WHEN total_cost < 590 THEN 0                     -- below RDS threshold
-          WHEN total_cost > 12150 THEN 12150              -- cap per flow
-          ELSE total_cost
-        END AS capped_cost
-      FROM per_member_costs
-      WHERE total_cost >= 590
-    )
-    SELECT json_build_object(
-      'eligible_member_count', COUNT(*)::int,
-      'total_rds_plan_cost', ROUND(SUM(capped_cost), 2),
-      'estimated_rds_savings', ROUND(SUM(capped_cost) * 0.28, 2)
-    ) AS rds_financial_callout
-    FROM eligible_members;
+      WITH rds_candidates AS (
+  SELECT
+    cr.mapped_fields->>'member_id' AS member_id,
+    COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost
+  FROM claim_records cr
+  WHERE cr.file_id = $1
+    AND COALESCE((cr.dynamic_fields->'ageEnrichment'->>'ageAtFillDate')::int, 0) >= 65
+    AND cr.lookup_fields->>'is_in_formulary' = 'true'
+),
+per_member_costs AS (
+  SELECT
+    member_id,
+    SUM(plan_cost) AS total_cost
+  FROM rds_candidates
+  GROUP BY member_id
+),
+eligible_members AS (
+  SELECT
+    member_id,
+    LEAST(total_cost, 12150) AS capped_cost
+  FROM per_member_costs
+  WHERE total_cost >= 590
+)
+SELECT json_build_object(
+  'eligible_member_count', COUNT(*)::int,
+  'total_rds_plan_cost', ROUND(SUM(capped_cost), 2),
+  'estimated_rds_savings', ROUND((SUM(capped_cost) - (COUNT(*) * 590)) * 0.28, 2)
+) AS rds_financial_callout
+FROM eligible_members;
   `;
 
   try {
