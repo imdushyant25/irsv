@@ -591,7 +591,7 @@ async function analyzeIds(client: Client, fileId: string) {
     cr.record_id,
     cr.file_id,
     cr.mapped_fields->>'member_id' AS member_id,
-    (cr.lookup_fields->>'reprice_gross_cost')::numeric AS reprice_gross_cost,
+    (cr.lookup_fields->>'reprice_plan_cost')::numeric AS reprice_gross_cost,
     (cr.lookup_fields->>'days_supply')::numeric AS days_supply,
     (cr.lookup_fields->>'quantity')::numeric AS quantity,
     LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') AS ndc11,
@@ -599,14 +599,14 @@ async function analyzeIds(client: Client, fileId: string) {
     dm.rxmanage_cost_per_qty::numeric AS rxmanage_cost_per_qty,
 
     -- Reprice minus MAP
-    (cr.lookup_fields->>'reprice_gross_cost')::numeric 
+    (cr.lookup_fields->>'reprice_plan_cost')::numeric 
       - (dm.map_offset_per_ds::numeric * (cr.lookup_fields->>'days_supply')::numeric) AS irx_less_map,
 
     -- RxManage Cost
     (dm.rxmanage_cost_per_qty::numeric * (cr.lookup_fields->>'quantity')::numeric) AS rxmanage_cost,
 
     -- Correct Per-Claim Savings
-    ((cr.lookup_fields->>'reprice_gross_cost')::numeric 
+    ((cr.lookup_fields->>'reprice_plan_cost')::numeric 
       - (dm.map_offset_per_ds::numeric * (cr.lookup_fields->>'days_supply')::numeric)) 
     - (dm.rxmanage_cost_per_qty::numeric * (cr.lookup_fields->>'quantity')::numeric) AS claim_savings
 
@@ -622,7 +622,7 @@ summary AS (
     COUNT(DISTINCT member_id) AS member_count,
     ROUND(SUM(irx_less_map), 2) AS total_irx_less_map,
     ROUND(SUM(rxmanage_cost), 2) AS total_rxmanage_cost,
-    ROUND(SUM(claim_savings), 2) AS total_savings
+    ROUND(SUM(irx_less_map) - SUM(rxmanage_cost), 2) AS total_savings
   FROM ids_claims
 )
 SELECT jsonb_build_object(
