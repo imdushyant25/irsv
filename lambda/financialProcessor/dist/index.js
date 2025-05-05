@@ -326,7 +326,6 @@ async function analyzePapFinancial(client, fileId) {
   WHERE cr.file_id = $1
     AND cr.lookup_fields->>'pap' = 'Y'
     AND cr.exclusion_type = 'Plan'
-    AND cr.lookup_fields->>'is_in_formulary' = 'true'
 ),
 pap_metrics AS (
   SELECT
