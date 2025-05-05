@@ -377,7 +377,7 @@ async function analyzeHansFinancial(client, fileId) {
       SELECT
         cr.record_id,
         cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
+        COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0) AS plan_cost,
         COALESCE((cr.lookup_fields->>'quantity')::numeric, 0) AS quantity,
         COALESCE(dm.hans_unit_cost::numeric, 0) AS hans_unit_cost
       FROM claim_records cr
