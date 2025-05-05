@@ -64,60 +64,59 @@ const handler = async (event) => {
 exports.handler = handler;
 async function analyzeExclusions(client, fileId, opportunityId) {
     const query = `
-    WITH file_link AS (
-  SELECT file_id, opportunity_id
-  FROM edpm.claims_file_registry
-  WHERE opportunity_id = $1 AND file_id = $2
-),
-file_claims AS (
+WITH file_claims AS (
   SELECT
     cr.record_id,
     cr.lookup_fields,
     (cr.mapped_fields->>'plan_cost')::numeric AS plan_cost,
     cr.mapped_fields->>'member_id' AS member_id
   FROM edpm.claim_records cr
-  JOIN file_link fl ON cr.file_id = fl.file_id
+  where cr.file_id = $2
 ),
-all_exclusion_keys AS (
-  SELECT DISTINCT REPLACE(key, 'px_', '') AS exclusion_name, 'Plan' AS exclusion_type
-  FROM file_claims, jsonb_each_text(lookup_fields)
-  WHERE key LIKE 'px_%' AND value = 'true'
+
+opportunity_exclusions AS (
+  SELECT
+    jsonb_each_text.key AS exclusion_name
+  FROM edpm.opportunity o,
+       jsonb_each_text(o.opportunity_metadata->'generalInformation'->'planExclusions')
+  WHERE o.opportunity_id = $1
+    AND jsonb_each_text.value = 'true'
 ),
+
 plan_exclusion_claims AS (
   SELECT DISTINCT
     'Plan' AS exclusion_type,
-    REPLACE(key, 'px_', '') AS exclusion_name,
+    oe.exclusion_name,
     fc.plan_cost,
     fc.member_id,
     fc.record_id
-  FROM file_claims fc,
-       jsonb_each_text(fc.lookup_fields) AS kv(key, value)
-  WHERE key LIKE 'px_%'
-    AND value = 'true'
-    AND fc.lookup_fields->>REPLACE(key, 'px_', '') = 'Y'
+  FROM file_claims fc
+  JOIN opportunity_exclusions oe
+    ON fc.lookup_fields->>oe.exclusion_name = 'Y'
 ),
+
 grouped AS (
   SELECT
-    exclusion_type,
+    'Plan' AS exclusion_type,
     exclusion_name,
     SUM(plan_cost) AS total_plan_cost,
     COUNT(*) AS claim_count,
     COUNT(DISTINCT member_id) AS member_count
   FROM plan_exclusion_claims
-  GROUP BY exclusion_type, exclusion_name
+  GROUP BY exclusion_name
 ),
+
 final_grouped AS (
   SELECT
-    ak.exclusion_type,
-    ak.exclusion_name,
+    'Plan' AS exclusion_type,
+    oe.exclusion_name,
     COALESCE(g.total_plan_cost, 0) AS total_plan_cost,
     COALESCE(g.claim_count, 0) AS claim_count,
     COALESCE(g.member_count, 0) AS member_count
-  FROM all_exclusion_keys ak
-  LEFT JOIN grouped g
-    ON ak.exclusion_type = g.exclusion_type
-    AND ak.exclusion_name = g.exclusion_name
+  FROM opportunity_exclusions oe
+  LEFT JOIN grouped g ON oe.exclusion_name = g.exclusion_name
 ),
+
 final_results AS (
   SELECT
     exclusion_type,
@@ -168,31 +167,34 @@ SELECT json_build_object(
     FROM final_results
   )
 ) AS results;
-
   `;
     const result = await client.query(query, [opportunityId, fileId]);
     return result.rows[0]?.results || null;
 }
 async function stampExcludedClaims(client, fileId, opportunityId) {
     const updateQuery = `
-    WITH file_claims AS (
+WITH opportunity_exclusions AS (
+  SELECT
+    jsonb_each_text.key AS exclusion_name
+  FROM edpm.opportunity o,
+       jsonb_each_text(o.opportunity_metadata->'generalInformation'->'planExclusions')
+  WHERE o.opportunity_id = $1
+    AND jsonb_each_text.value = 'true'
+),
+file_claims AS (
   SELECT
     cr.record_id::uuid,
     cr.lookup_fields
   FROM edpm.claim_records cr
-  JOIN edpm.claims_file_registry fr ON cr.file_id = fr.file_id
-  WHERE fr.opportunity_id = $1 AND cr.file_id = $2
+  WHERE cr.file_id = $2
 ),
 plan_exclusion_claims AS (
   SELECT DISTINCT
-    fc.record_id::uuid AS record_id,
+    fc.record_id,
     'Plan' AS exclusion_type
-  FROM file_claims fc,
-       jsonb_each_text(fc.lookup_fields) AS kv(key, value)
-  WHERE key LIKE 'px_%'
-    AND value = 'true'
-    AND fc.lookup_fields ? REPLACE(key, 'px_', '')
-    AND fc.lookup_fields->>REPLACE(key, 'px_', '') = 'Y'
+  FROM file_claims fc
+  JOIN opportunity_exclusions oe
+    ON fc.lookup_fields->>oe.exclusion_name = 'Y'
 )
 
 UPDATE edpm.claim_records cr

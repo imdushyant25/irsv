@@ -94,7 +94,7 @@ var BatchEnrichmentStatus;
     BatchEnrichmentStatus["ERROR"] = "ERROR";
 })(BatchEnrichmentStatus || (BatchEnrichmentStatus = {}));
 // Set batch size for processing
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 1000;
 /**
  * Main Lambda handler for file processing
  * @param event The Lambda event containing fileId, processingId, and s3Location

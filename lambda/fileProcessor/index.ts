@@ -60,7 +60,7 @@ enum BatchEnrichmentStatus {
 }
 
 // Set batch size for processing
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 1000;
 
 /**
  * Main Lambda handler for file processing
