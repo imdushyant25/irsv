@@ -1537,6 +1537,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
                   <Th>Category</Th>
                   <Th isNumeric>Total Cost</Th>
                   <Th isNumeric>Impacted Members</Th>
+                  <Th isNumeric>Claim Count</Th>
                 </Tr>
               </Thead>
               <Tbody>
@@ -1545,6 +1546,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
                     <Td fontWeight="medium">{category.category}</Td>
                     <Td isNumeric>{formatCurrency(category.total_cost || 0)}</Td>
                     <Td isNumeric>{category.impacted_members}</Td>
+                    <Td isNumeric>{category.claim_count || 0}</Td>
                   </Tr>
                 ))}
                 {hddhpData.filter((item: any) => item.category === 'Total Impacted Members').map((total: any, index: number) => (
@@ -1552,6 +1554,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
                     <Td>{total.category}</Td>
                     <Td isNumeric>{total.total_cost !== null ? formatCurrency(total.total_cost) : '-'}</Td>
                     <Td isNumeric>{total.impacted_members}</Td>
+                    <Td isNumeric>-</Td>
                   </Tr>
                 ))}
               </Tbody>
@@ -1621,6 +1624,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
                   <Th>Category</Th>
                   <Th isNumeric>Total Cost</Th>
                   <Th isNumeric>Impacted Members</Th>
+                  <Th isNumeric>Claim Count</Th>
                 </Tr>
               </Thead>
               <Tbody>
@@ -1629,6 +1633,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
                     <Td fontWeight="medium">{category.category}</Td>
                     <Td isNumeric>{formatCurrency(category.total_cost || 0)}</Td>
                     <Td isNumeric>{category.impacted_members}</Td>
+                    <Td isNumeric>{category.claim_count || 0}</Td>
                   </Tr>
                 ))}
                 {acaData.filter((item: any) => item.category === 'Total Impacted Members').map((total: any, index: number) => (
@@ -1636,6 +1641,7 @@ export default function ExclusionsTab({ fileId }: ExclusionsTabProps) {
                     <Td>{total.category}</Td>
                     <Td isNumeric>{total.total_cost !== null ? formatCurrency(total.total_cost) : '-'}</Td>
                     <Td isNumeric>{total.impacted_members}</Td>
+                    <Td isNumeric>-</Td>
                   </Tr>
                 ))}
               </Tbody>

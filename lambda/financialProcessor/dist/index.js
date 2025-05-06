@@ -110,49 +110,58 @@ exports.handler = handler;
  */
 async function analyzeHdhpPreventive(client, fileId) {
     const query = `
-    WITH base_claims AS (
-      SELECT
-        cr.record_id,
-        cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
-        COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
-        cr.mapped_fields->>'preventive_drug' = 'true' AS is_preventive,
-        dm.is_hdhp = 'Y' AS is_on_hdhd_list
-      FROM claim_records cr
-      LEFT JOIN drugs_master dm
-        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
-      WHERE cr.file_id = $1
-      AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    ),
-    qualified_claims AS (
-      SELECT *
-      FROM base_claims
-      WHERE is_preventive OR is_on_hdhd_list
-    ),
-    categorized AS (
-      SELECT
-        CASE
-          WHEN member_copay > 0 THEN 'Additional Plan Expense'
-          ELSE 'Potential Savings Opportunity'
-        END AS category,
-        SUM(CASE WHEN member_copay > 0 THEN member_copay ELSE plan_cost END) AS total_cost,
-        COUNT(DISTINCT member_id) AS impacted_members
-      FROM qualified_claims
-      GROUP BY category
-    ),
-    member_summary AS (
-      SELECT
-        'Total Impacted Members' AS category,
-        NULL::numeric AS total_cost,
-        COUNT(DISTINCT member_id) AS impacted_members
-      FROM qualified_claims
-    )
-    SELECT json_agg(result) AS hdhp_preventive_summary
-    FROM (
-      SELECT * FROM categorized
-      UNION ALL
-      SELECT * FROM member_summary
-    ) result
+WITH base_claims AS (
+  SELECT
+    cr.record_id,
+    cr.mapped_fields->>'member_id' AS member_id,
+    cr.lookup_fields->>'reprice_net_plan_cost' AS raw_net_plan_cost,
+    cr.lookup_fields->>'member_copay' AS raw_member_copay,
+    cr.mapped_fields->>'preventive_drug_irs' AS preventive_drug,
+    dm.is_hdhp,
+    -- parsed numeric values
+    COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0) AS net_plan_cost,
+    COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay
+  FROM claim_records cr
+  LEFT JOIN drugs_master dm
+    ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+  WHERE cr.file_id = $1
+    AND cr.lookup_fields->>'is_in_formulary' = 'true'
+),
+
+categorized_claims AS (
+  SELECT
+    record_id,
+    member_id,
+    CASE
+      WHEN preventive_drug = 'Y' AND is_hdhp = 'Y' THEN 'No Change'
+      WHEN preventive_drug = 'Y' AND (is_hdhp IS DISTINCT FROM 'Y') THEN 'Plan Savings'
+      WHEN (preventive_drug IS DISTINCT FROM 'Y') AND is_hdhp = 'Y' THEN 'Plan Expense'
+      ELSE NULL
+    END AS category,
+    CASE
+      WHEN preventive_drug = 'Y' AND is_hdhp = 'Y' THEN 0
+      WHEN preventive_drug = 'Y' AND (is_hdhp IS DISTINCT FROM 'Y') THEN net_plan_cost
+      WHEN (preventive_drug IS DISTINCT FROM 'Y') AND is_hdhp = 'Y' THEN 
+        CASE WHEN member_copay > 0 THEN member_copay ELSE 0 END
+      ELSE 0
+    END AS cost
+  FROM base_claims
+  WHERE (preventive_drug = 'Y' OR is_hdhp = 'Y')
+),
+
+summary AS (
+  SELECT
+    category,
+    SUM(cost) AS total_cost,
+    COUNT(DISTINCT member_id) AS impacted_members,
+    COUNT(*) AS claim_count
+  FROM categorized_claims
+  WHERE category IS NOT NULL
+  GROUP BY category
+)
+
+SELECT json_agg(summary) AS hdhp_preventive_summary
+FROM summary;
   `;
     try {
         const result = await client.query(query, [fileId]);
@@ -168,49 +177,59 @@ async function analyzeHdhpPreventive(client, fileId) {
  */
 async function analyzeAcaPreventive(client, fileId) {
     const query = `
-    WITH base_claims AS (
-      SELECT
-        cr.record_id,
-        cr.mapped_fields->>'member_id' AS member_id,
-        COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) AS plan_cost,
-        COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay,
-        cr.mapped_fields->>'preventive_drug' = 'true' AS is_preventive,
-        dm.is_aca = 'Y' AS is_on_aca_list
-      FROM claim_records cr
-      LEFT JOIN drugs_master dm
-        ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
-      WHERE cr.file_id = $1
-      AND cr.lookup_fields->>'is_in_formulary' = 'true'
-    ),
-    qualified_claims AS (
-      SELECT *
-      FROM base_claims
-      WHERE is_preventive OR is_on_aca_list
-    ),
-    categorized AS (
-      SELECT
-        CASE
-          WHEN member_copay > 0 THEN 'Additional Plan Expense'
-          ELSE 'Potential Savings Opportunity'
-        END AS category,
-        SUM(CASE WHEN member_copay > 0 THEN member_copay ELSE plan_cost END) AS total_cost,
-        COUNT(DISTINCT member_id) AS impacted_members
-      FROM qualified_claims
-      GROUP BY category
-    ),
-    member_summary AS (
-      SELECT
-        'Total Impacted Members' AS category,
-        NULL::numeric AS total_cost,
-        COUNT(DISTINCT member_id) AS impacted_members
-      FROM qualified_claims
-    )
-    SELECT json_agg(result) AS aca_preventive_summary
-    FROM (
-      SELECT * FROM categorized
-      UNION ALL
-      SELECT * FROM member_summary
-    ) result
+WITH base_claims AS (
+  SELECT
+    cr.record_id,
+    cr.mapped_fields->>'member_id' AS member_id,
+    cr.lookup_fields->>'reprice_net_plan_cost' AS raw_net_plan_cost,
+    cr.lookup_fields->>'member_copay' AS raw_member_copay,
+    cr.mapped_fields->>'preventive_drug' AS preventive_drug,
+    dm.is_aca,
+    -- parsed numeric values
+    COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0) AS net_plan_cost,
+    COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0) AS member_copay
+  FROM claim_records cr
+  LEFT JOIN drugs_master dm
+    ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
+  WHERE cr.file_id = $1
+    AND cr.lookup_fields->>'is_in_formulary' = 'true'
+),
+
+categorized_claims AS (
+  SELECT
+    record_id,
+    member_id,
+    CASE
+      WHEN preventive_drug = 'Y' AND is_aca = 'Y' THEN 'No Change'
+      WHEN preventive_drug = 'Y' AND (is_aca IS DISTINCT FROM 'Y') THEN 'Plan Savings'
+      WHEN (preventive_drug IS DISTINCT FROM 'Y') AND is_aca = 'Y' THEN 'Plan Expense'
+      ELSE NULL
+    END AS category,
+    CASE
+      WHEN preventive_drug = 'Y' AND is_aca = 'Y' THEN 0
+      WHEN preventive_drug = 'Y' AND (is_aca IS DISTINCT FROM 'Y') THEN net_plan_cost
+      WHEN (preventive_drug IS DISTINCT FROM 'Y') AND is_aca = 'Y' THEN 
+        CASE WHEN member_copay > 0 THEN member_copay ELSE 0 END
+      ELSE 0
+    END AS cost
+  FROM base_claims
+  WHERE 
+    (preventive_drug = 'Y' OR is_aca = 'Y')  -- only keep relevant claims
+),
+
+summary AS (
+  SELECT
+    category,
+    SUM(cost) AS total_cost,
+    COUNT(DISTINCT member_id) AS impacted_members,
+    COUNT(*) AS claim_count
+  FROM categorized_claims
+  WHERE category IS NOT NULL
+  GROUP BY category
+)
+
+SELECT json_agg(summary) AS aca_preventive_summary
+FROM summary;
   `;
     try {
         const result = await client.query(query, [fileId]);
