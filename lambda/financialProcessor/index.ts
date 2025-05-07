@@ -115,7 +115,7 @@ export const handler = async (event: any) => {
  */
 async function analyzeHdhpPreventive(client: Client, fileId: string) {
   const query = `
-WITH has_any_illuminate_flag AS (
+WITH has_any_hdhp_flag AS (
   SELECT EXISTS (
     SELECT 1
     FROM claim_records cr
@@ -123,12 +123,13 @@ WITH has_any_illuminate_flag AS (
       ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
     WHERE cr.file_id = $1
       AND dm.is_hdhp = 'Y'
-  ) AS has_illuminate_coverage
+  ) AS has_hdhp_coverage
 ),
 base_claims AS (
   SELECT
     cr.record_id,
     cr.mapped_fields->>'member_id' AS member_id,
+    cr.mapped_fields ? 'preventive_drug_irs' AS has_incumbent_preventive,
     cr.mapped_fields->>'preventive_drug_irs' AS incumbent_preventive,
     dm.is_hdhp,
     COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0) AS net_plan_cost,
@@ -138,34 +139,45 @@ base_claims AS (
     ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = dm.ndc11
   WHERE cr.file_id = $1
 ),
+
 final AS (
   SELECT
     bc.*,
-    h.has_illuminate_coverage
+    h.has_hdhp_coverage
   FROM base_claims bc
-  CROSS JOIN has_any_illuminate_flag h
+  CROSS JOIN has_any_hdhp_flag h
 ),
+
 categorized_claims AS (
   SELECT
     record_id,
     member_id,
     CASE
-      WHEN incumbent_preventive = 'Y' AND is_hdhp = 'Y' THEN 'No Change'
-      WHEN incumbent_preventive = 'Y' AND COALESCE(is_hdhp, '') != 'Y' THEN 'Plan Savings'
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_hdhp = 'Y' AND member_copay = 0 THEN 'No Change'
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_hdhp = 'Y' AND member_copay > 0 THEN 'Plan Expense'
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND COALESCE(is_hdhp, '') != 'Y' AND has_illuminate_coverage = false THEN 'Claims Not Evaluated'
+      -- WITH incumbent indicator
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_hdhp = 'Y' THEN 'No Change'
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_hdhp IS DISTINCT FROM 'Y' THEN 'Plan Savings'
+      WHEN has_incumbent_preventive AND incumbent_preventive IS DISTINCT FROM 'Y' AND is_hdhp = 'Y' THEN 'Plan Expense'
+
+      -- WITHOUT incumbent indicator
+      WHEN NOT has_incumbent_preventive AND is_hdhp = 'Y' AND member_copay = 0 THEN 'No Change'
+      WHEN NOT has_incumbent_preventive AND is_hdhp = 'Y' AND member_copay > 0 THEN 'Plan Expense'
+
+      -- CLAIMS NOT EVALUATED
+      WHEN NOT has_incumbent_preventive AND has_hdhp_coverage = false THEN 'Claims Not Evaluated'
+
       ELSE NULL
     END AS category,
     CASE
-      WHEN incumbent_preventive = 'Y' AND is_hdhp = 'Y' THEN 0
-      WHEN incumbent_preventive = 'Y' AND COALESCE(is_hdhp, '') != 'Y' THEN net_plan_cost
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_hdhp = 'Y' AND member_copay = 0 THEN 0
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_hdhp = 'Y' AND member_copay > 0 THEN member_copay
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_hdhp = 'Y' THEN 0
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_hdhp IS DISTINCT FROM 'Y' THEN net_plan_cost
+      WHEN has_incumbent_preventive AND incumbent_preventive IS DISTINCT FROM 'Y' AND is_hdhp = 'Y' THEN member_copay
+      WHEN NOT has_incumbent_preventive AND is_hdhp = 'Y' AND member_copay = 0 THEN 0
+      WHEN NOT has_incumbent_preventive AND is_hdhp = 'Y' AND member_copay > 0 THEN member_copay
       ELSE 0
     END AS cost
   FROM final
 ),
+
 summary AS (
   SELECT
     category,
@@ -178,8 +190,7 @@ summary AS (
 )
 
 SELECT json_agg(summary) AS hdhp_preventive_summary
-FROM summary;
-  `;
+FROM summary;  `;
 
   try {
     const result = await client.query(query, [fileId]);
@@ -205,11 +216,11 @@ WITH has_any_aca_flag AS (
       AND dm.is_aca = 'Y'
   ) AS has_aca_coverage
 ),
-
 base_claims AS (
   SELECT
     cr.record_id,
     cr.mapped_fields->>'member_id' AS member_id,
+    cr.mapped_fields ? 'preventive_drug' AS has_incumbent_preventive,
     cr.mapped_fields->>'preventive_drug' AS incumbent_preventive,
     dm.is_aca,
     COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0) AS net_plan_cost,
@@ -233,18 +244,26 @@ categorized_claims AS (
     record_id,
     member_id,
     CASE
-      WHEN incumbent_preventive = 'Y' AND is_aca = 'Y' THEN 'No Change'
-      WHEN incumbent_preventive = 'Y' AND COALESCE(is_aca, '') != 'Y' THEN 'Plan Savings'
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_aca = 'Y' AND member_copay = 0 THEN 'No Change'
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_aca = 'Y' AND member_copay > 0 THEN 'Plan Expense'
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND COALESCE(is_aca, '') != 'Y' AND has_aca_coverage = false THEN 'Claims Not Evaluated'
+      -- WITH incumbent indicator
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_aca = 'Y' THEN 'No Change'
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_aca IS DISTINCT FROM 'Y' THEN 'Plan Savings'
+      WHEN has_incumbent_preventive AND incumbent_preventive IS DISTINCT FROM 'Y' AND is_aca = 'Y' THEN 'Plan Expense'
+
+      -- WITHOUT incumbent indicator
+      WHEN NOT has_incumbent_preventive AND is_aca = 'Y' AND member_copay = 0 THEN 'No Change'
+      WHEN NOT has_incumbent_preventive AND is_aca = 'Y' AND member_copay > 0 THEN 'Plan Expense'
+
+      -- CLAIMS NOT EVALUATED
+      WHEN NOT has_incumbent_preventive AND has_aca_coverage = false THEN 'Claims Not Evaluated'
+
       ELSE NULL
     END AS category,
     CASE
-      WHEN incumbent_preventive = 'Y' AND is_aca = 'Y' THEN 0
-      WHEN incumbent_preventive = 'Y' AND COALESCE(is_aca, '') != 'Y' THEN net_plan_cost
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_aca = 'Y' AND member_copay = 0 THEN 0
-      WHEN COALESCE(incumbent_preventive, '') != 'Y' AND is_aca = 'Y' AND member_copay > 0 THEN member_copay
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_aca = 'Y' THEN 0
+      WHEN has_incumbent_preventive AND incumbent_preventive = 'Y' AND is_aca IS DISTINCT FROM 'Y' THEN net_plan_cost
+      WHEN has_incumbent_preventive AND incumbent_preventive IS DISTINCT FROM 'Y' AND is_aca = 'Y' THEN member_copay
+      WHEN NOT has_incumbent_preventive AND is_aca = 'Y' AND member_copay = 0 THEN 0
+      WHEN NOT has_incumbent_preventive AND is_aca = 'Y' AND member_copay > 0 THEN member_copay
       ELSE 0
     END AS cost
   FROM final
