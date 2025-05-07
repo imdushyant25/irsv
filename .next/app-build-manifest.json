@@ -1,19 +1,14 @@
 {
   "pages": {
-    "/opportunities/[opportunityId]/files/[fileId]/claims/page": [
+    "/opportunities/[opportunityId]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/opportunities/[opportunityId]/files/[fileId]/claims/page.js"
+      "static/chunks/app/opportunities/[opportunityId]/page.js"
     ],
     "/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/layout.js"
-    ],
-    "/opportunities/[opportunityId]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/opportunities/[opportunityId]/page.js"
     ],
     "/opportunities/[opportunityId]/files/[fileId]/page": [
       "static/chunks/webpack.js",
