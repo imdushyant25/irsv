@@ -1,13 +1,11 @@
 {
-  "/api/opportunities/[opportunityId]/files/route": "app/api/opportunities/[opportunityId]/files/route.js",
-  "/api/files/upload/route": "app/api/files/upload/route.js",
-  "/api/opportunities/[opportunityId]/route": "app/api/opportunities/[opportunityId]/route.js",
+  "/opportunities/[opportunityId]/files/[fileId]/claims/page": "app/opportunities/[opportunityId]/files/[fileId]/claims/page.js",
   "/opportunities/[opportunityId]/page": "app/opportunities/[opportunityId]/page.js",
   "/opportunities/[opportunityId]/files/[fileId]/page": "app/opportunities/[opportunityId]/files/[fileId]/page.js",
-  "/api/files/[fileId]/route": "app/api/files/[fileId]/route.js",
-  "/api/mapping/standard-fields/route": "app/api/mapping/standard-fields/route.js",
-  "/api/files/[fileId]/mapping/route": "app/api/files/[fileId]/mapping/route.js",
-  "/api/mapping/field-variations/route": "app/api/mapping/field-variations/route.js",
   "/opportunities/[opportunityId]/files/page": "app/opportunities/[opportunityId]/files/page.js",
-  "/api/files/workflow/route": "app/api/files/workflow/route.js"
+  "/api/files/workflow/route": "app/api/files/workflow/route.js",
+  "/api/opportunities/[opportunityId]/files/route": "app/api/opportunities/[opportunityId]/files/route.js",
+  "/api/files/[fileId]/route": "app/api/files/[fileId]/route.js",
+  "/api/files/[fileId]/claims/route": "app/api/files/[fileId]/claims/route.js",
+  "/api/files/[fileId]/savings/route": "app/api/files/[fileId]/savings/route.js"
 }
