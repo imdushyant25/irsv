@@ -38,8 +38,8 @@ export const handler = async (event: any) => {
     }
 
     // Run all analyses in parallel
-    console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, SPP, and DAW analyses in parallel');
-    const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults, idsResults, sppResults, dawResults] = await Promise.all([
+    console.log('Starting HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, SPP, DAW, and Calcs analyses in parallel');
+    const [hdgpResults, acaResults, rebateResults, rdsResults, papResults, hansResults, maResults, cciResults, mcapResults, idsResults, sppResults, dawResults, calcsResults] = await Promise.all([
       analyzeHdhpPreventive(client, fileId),
       analyzeAcaPreventive(client, fileId),
       analyzeRebateFinancial(client, fileId),
@@ -51,9 +51,10 @@ export const handler = async (event: any) => {
       analyzeMcap(client, fileId),
       analyzeIds(client, fileId),
       analyzeParityPricing(client, fileId),
-      analyzeDawPenalties(client, fileId)
+      analyzeDawPenalties(client, fileId),
+      analyzeMetricsCalculation(client, fileId)
     ]);
-    
+
     // Save all results in parallel
     await Promise.all([
       saveResultsToDatabase(client, fileId, 'fcHDHP', hdgpResults),
@@ -67,10 +68,11 @@ export const handler = async (event: any) => {
       saveResultsToDatabase(client, fileId, 'fcMCAP', mcapResults),
       saveResultsToDatabase(client, fileId, 'fcIDS', idsResults),
       saveResultsToDatabase(client, fileId, 'fcSPP', sppResults),
-      saveResultsToDatabase(client, fileId, 'fcDAW', dawResults)
+      saveResultsToDatabase(client, fileId, 'fcDAW', dawResults),
+      saveResultsToDatabase(client, fileId, 'fcCalcs', calcsResults)
     ]);
     
-    console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, SPP, and DAW analyses completed and saved in parallel');
+    console.log('HDHP, ACA, Rebate, RDS, PAP, HANS, MA, CCI, MCAP, IDS, SPP, DAW, and Calcs analyses completed and saved in parallel');
 
     return {
       statusCode: 200,
@@ -84,12 +86,13 @@ export const handler = async (event: any) => {
         rdsResults,
         papResults,
         hansResults,
-      maResults,
-      cciResults,
-      mcapResults,
-      idsResults,
-      sppResults,
-      dawResults
+        maResults,
+        cciResults,
+        mcapResults,
+        idsResults,
+        sppResults,
+        dawResults,
+        calcsResults
       }
     };
   } catch (error) {
@@ -879,6 +882,1366 @@ SELECT row_to_json(summary) FROM summary;
     };
   } catch (error) {
     console.error('Error during DAW penalties analysis:', error);
+    throw error;
+  }
+}
+
+/**
+ * Analyze metrics calculation for claims
+ */
+async function analyzeMetricsCalculation(client: Client, fileId: string) {
+  const query = `
+  SELECT json_agg(
+    json_build_object(
+      'metric', metric,
+      'before_reprice', before_reprice,
+      'after_reprice', after_reprice
+    )
+  ) AS metrics_summary
+  FROM (
+
+  -- Metric 1: Net Plan Cost
+
+  SELECT
+
+    'Net Plan Cost' AS metric,
+
+    SUM(COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+      - COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0)
+
+      - COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0)
+
+    ) AS before_reprice,
+
+    SUM(COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0)) AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  UNION ALL
+
+
+
+  -- Metric 2: Average AWP per Days Supply
+
+  SELECT
+
+    'Average AWP per Days Supply' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  UNION ALL
+
+
+
+  -- Corrected Metric 3: Average Gross Cost Per Days Supply
+
+  SELECT
+
+    'Average Gross Cost Per Days Supply' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  UNION ALL
+
+
+
+  -- Corrected Metric 4: Average Plan Cost Per Days Supply
+
+  SELECT
+
+    'Average Plan Cost Per Days Supply' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+
+
+  UNION ALL
+
+
+
+  -- Corrected Metric 5: Average Plan Cost Per Days Supply (Acute)
+
+  SELECT
+
+    'Average Plan Cost Per Days Supply (Acute)' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  JOIN mspan_ndc_info mni
+
+    ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = mni.ndc11
+
+  WHERE cr.file_id = $1
+
+    AND mni.mspan_maint_drug_code <> 'Y'
+
+
+
+  UNION ALL
+
+
+
+  -- Corrected Metric 6: Average Plan Cost Per Days Supply (Maintenance)
+
+  SELECT
+
+    'Average Plan Cost Per Days Supply (Maintenance)' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0)) > 0 THEN
+
+      SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0))
+
+      / SUM(COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0))
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  JOIN mspan_ndc_info mni
+
+    ON LPAD(TRIM(cr.lookup_fields->>'ndc11'), 11, '0') = mni.ndc11
+
+  WHERE cr.file_id = $1
+
+    AND mni.mspan_maint_drug_code = 'Y'
+
+
+
+
+
+    UNION all
+
+
+
+    -- Metric 7: Average Plan Cost per Claim
+
+  SELECT
+
+    'Average Plan Cost per Claim' AS metric,
+
+    SUM(COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0))
+
+      / NULLIF(COUNT(cr.record_id), 0) AS before_reprice,
+
+    SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0))
+
+      / NULLIF(COUNT(cr.record_id), 0) AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+   UNION all
+
+
+
+  -- Metric 8: Member Cost Share (%)
+
+  SELECT
+
+    'Member Cost Share (%)' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)) > 0 THEN
+
+      (SUM(COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0))
+
+       / SUM(COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)) > 0 THEN
+
+      (SUM(COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0))
+
+       / SUM(COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  SELECT
+
+    'Overall Plan Rebate Yield (%)' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0)) > 0 THEN
+
+      (SUM(COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0))
+
+       / SUM(COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0)) > 0 THEN
+
+      (SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0)
+
+         - COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0))
+
+       / SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 10: Overall Gross Rebate Yield (%)
+
+  SELECT
+
+    'Overall Gross Rebate Yield (%)' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)) > 0 THEN
+
+      (SUM(COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0))
+
+       / SUM(COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)) > 0 THEN
+
+      (SUM(COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0)
+
+         - COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0))
+
+       / SUM(COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 11: 30 Days Supply Utilization (%)
+
+  SELECT
+
+    '30 Days Supply Utilization (%)' AS metric,
+
+    CASE WHEN COUNT(cr.record_id) > 0 THEN
+
+      (COUNT(CASE WHEN COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31 THEN 1 END)
+
+       / COUNT(cr.record_id)::numeric) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN COUNT(cr.record_id) > 0 THEN
+
+      (COUNT(CASE WHEN COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31 THEN 1 END)
+
+       / COUNT(cr.record_id)::numeric) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 12: 60 Days Supply Utilization (%)
+
+  SELECT
+
+    '60 Days Supply Utilization (%)' AS metric,
+
+    CASE WHEN COUNT(cr.record_id) > 0 THEN
+
+      (COUNT(CASE WHEN COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60 THEN 1 END)
+
+       / COUNT(cr.record_id)::numeric) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN COUNT(cr.record_id) > 0 THEN
+
+      (COUNT(CASE WHEN COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) BETWEEN 31 AND 60 THEN 1 END)
+
+       / COUNT(cr.record_id)::numeric) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 13: 90 Days Supply Utilization (%)
+
+  SELECT
+
+    '90 Days Supply Utilization (%)' AS metric,
+
+    CASE WHEN COUNT(cr.record_id) > 0 THEN
+
+      (COUNT(CASE WHEN COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60 THEN 1 END)
+
+       / COUNT(cr.record_id)::numeric) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN COUNT(cr.record_id) > 0 THEN
+
+      (COUNT(CASE WHEN COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 60 THEN 1 END)
+
+       / COUNT(cr.record_id)::numeric) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 14: Specialty Cost Per Claim ($)
+
+  SELECT
+
+    'Specialty Cost Per Claim ($)' AS metric,
+
+    SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) ELSE 0 END)
+
+      / NULLIF(COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN cr.record_id END), 0) AS before_reprice,
+
+
+
+    SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) ELSE 0 END)
+
+      / NULLIF(COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN cr.record_id END), 0) AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 15: Net Specialty Cost Per Claim ($)
+
+  SELECT
+
+    'Net Specialty Cost Per Claim ($)' AS metric,
+
+    CASE
+
+      WHEN COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN cr.record_id END) > 0 THEN
+
+        SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN
+
+              COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+              - COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0)
+
+              - COALESCE((cr.lookup_fields->>'member_copay')::numeric, 0)
+
+            ELSE 0 END)
+
+        / COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN cr.record_id END)
+
+      ELSE 0
+
+    END AS before_reprice,
+
+
+
+    CASE
+
+      WHEN COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN cr.record_id END) > 0 THEN
+
+        SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN
+
+              COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0)
+
+            ELSE 0 END)
+
+        / COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN cr.record_id END)
+
+      ELSE 0
+
+    END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 16: Specialty Brand as Percent of Specialty Claims (%)
+
+  SELECT
+
+    'Specialty Brand as Percent of Specialty Claims (%)' AS metric,
+
+    CASE WHEN COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END) > 0 THEN
+
+      (COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B' THEN 1 END)
+
+       / COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END)::numeric) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END) > 0 THEN
+
+      (COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B' THEN 1 END)
+
+       / COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END)::numeric) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union
+
+
+
+  -- Metric 17: Specialty Generic as Percent of Specialty Claims (%)
+
+  SELECT
+
+    'Specialty Generic as Percent of Specialty Claims (%)' AS metric,
+
+    CASE WHEN COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END) > 0 THEN
+
+      (COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G' THEN 1 END)
+
+       / COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END)::numeric) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END) > 0 THEN
+
+      (COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G' THEN 1 END)
+
+       / COUNT(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN 1 END)::numeric) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 18: Specialty Rebate Yield (%)
+
+  SELECT
+
+    'Specialty Rebate Yield (%)' AS metric,
+
+    CASE WHEN SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) ELSE 0 END) > 0 THEN
+
+      (SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN COALESCE((cr.lookup_fields->>'incumbent_rebate')::numeric, 0) ELSE 0 END)
+
+       / SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN COALESCE((cr.mapped_fields->>'plan_cost')::numeric, 0) ELSE 0 END)) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) ELSE 0 END) > 0 THEN
+
+      (SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN
+
+              COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0)
+
+              - COALESCE((cr.lookup_fields->>'reprice_net_plan_cost')::numeric, 0)
+
+            ELSE 0 END)
+
+       / SUM(CASE WHEN cr.lookup_fields->>'specialty_indicator' = 'Y' THEN COALESCE((cr.lookup_fields->>'reprice_plan_cost')::numeric, 0) ELSE 0 END)) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 19: Overall Net Effective Rate (%)
+
+  SELECT
+
+    'Overall Net Effective Rate (%)' AS metric,
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)) > 0 THEN
+
+      (1 - (SUM(COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0))
+
+            / SUM(COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)) > 0 THEN
+
+      (1 - (SUM(COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0))
+
+            / SUM(COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 20: Retail 30 Generic Net Effective Rate (%)
+
+  SELECT
+
+    'Retail 30 Generic Net Effective Rate (%)' AS metric,
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 21: Retail 30 Brand Net Effective Rate (%)
+
+  SELECT
+
+    'Retail 30 Brand Net Effective Rate (%)' AS metric,
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) < 31
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 22: Retail 90 Generic Net Effective Rate (%)
+
+  SELECT
+
+    'Retail 90 Generic Net Effective Rate (%)' AS metric,
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 23: Retail 90 Brand Net Effective Rate (%)
+
+  SELECT
+
+    'Retail 90 Brand Net Effective Rate (%)' AS metric,
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(CASE
+
+                    WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                     AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                  AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                    AND COALESCE((cr.lookup_fields->>'days_supply')::numeric, 0) > 30
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 24: Specialty Generic Net Effective Rate (%)
+
+  SELECT
+
+    'Specialty Generic Net Effective Rate (%)' AS metric,
+
+    CASE WHEN SUM(CASE
+
+                    WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(CASE
+
+                    WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+
+
+  union all
+
+
+
+  -- Metric 25: Specialty Brand Net Effective Rate (%)
+
+  SELECT
+
+    'Specialty Brand Net Effective Rate (%)' AS metric,
+
+    CASE WHEN SUM(CASE
+
+                    WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS before_reprice,
+
+
+
+    CASE WHEN SUM(CASE
+
+                    WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                    ELSE 0
+
+                  END) > 0 THEN
+
+      (1 - (SUM(CASE
+
+                 WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+
+                 ELSE 0
+
+               END)
+
+           / SUM(CASE
+
+                   WHEN cr.lookup_fields->>'specialty_indicator' = 'Y'
+
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+
+                   ELSE 0
+
+                 END))) * 100
+
+    ELSE 0 END AS after_reprice
+
+  FROM claim_records cr
+
+  WHERE cr.file_id = $1
+
+  union all
+
+  -- Revised Metric 26: Mail Generic Net Effective Rate (%) - Only when channel is mapped
+  SELECT
+    'Mail Generic Net Effective Rate (%)' AS metric,
+    CASE WHEN SUM(CASE
+                    WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                     AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                    ELSE 0
+                  END) > 0 THEN
+      (1 - (SUM(CASE
+                 WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                  AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+                 ELSE 0
+               END)
+           / SUM(CASE
+                   WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                    AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                   ELSE 0
+                 END))) * 100
+    ELSE 0 END AS before_reprice,
+
+    CASE WHEN SUM(CASE
+                    WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                     AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                    ELSE 0
+                  END) > 0 THEN
+      (1 - (SUM(CASE
+                 WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                  AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+                 ELSE 0
+               END)
+           / SUM(CASE
+                   WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                    AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'G'
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                   ELSE 0
+                 END))) * 100
+    ELSE 0 END AS after_reprice
+  FROM claim_records cr
+  WHERE cr.file_id = $1
+
+  union all
+
+  -- Metric 27: Mail Brand Net Effective Rate (%) - Only when channel is mapped
+  SELECT
+    'Mail Brand Net Effective Rate (%)' AS metric,
+    CASE WHEN SUM(CASE
+                    WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                     AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                    ELSE 0
+                  END) > 0 THEN
+      (1 - (SUM(CASE
+                 WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                  AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+                 THEN COALESCE((cr.mapped_fields->>'gross_cost')::numeric, 0)
+                 ELSE 0
+               END)
+           / SUM(CASE
+                   WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                    AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                   ELSE 0
+                 END))) * 100
+    ELSE 0 END AS before_reprice,
+
+    CASE WHEN SUM(CASE
+                    WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                     AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                     AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+                    THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                    ELSE 0
+                  END) > 0 THEN
+      (1 - (SUM(CASE
+                 WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                  AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                  AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+                 THEN COALESCE((cr.lookup_fields->>'reprice_gross_cost')::numeric, 0)
+                 ELSE 0
+               END)
+           / SUM(CASE
+                   WHEN COALESCE(NULLIF(TRIM(cr.mapped_fields->>'channel'), ''), NULL) IS NOT NULL
+                    AND LOWER(cr.mapped_fields->>'channel') = 'mail'
+                    AND LEFT(cr.lookup_fields->>'brnd_gnrc', 1) = 'B'
+                   THEN COALESCE((cr.lookup_fields->>'reprice_awp')::numeric, 0)
+                   ELSE 0
+                 END))) * 100
+    ELSE 0 END AS after_reprice
+  FROM claim_records cr
+  WHERE cr.file_id = $1) AS metrics;
+  `;
+
+  try {
+    const result = await client.query(query, [fileId]);
+    return result.rows[0]?.metrics_summary || [];
+  } catch (error) {
+    console.error('Error during metrics calculation analysis:', error);
     throw error;
   }
 }
