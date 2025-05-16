@@ -116,7 +116,7 @@ filtered_drugs AS (
   SELECT
     DISTINCT ON (gpi4, LEFT(brnd_gnrc, 1)) *
   FROM edpm.drugs_master
-  WHERE gpi6 IN ('612520', '612525')
+  WHERE gpi4 = '6125'
     AND specialty_indicator = 'N'
     AND LEFT(brnd_gnrc, 1) IN ('B', 'G')
   ORDER BY gpi4, LEFT(brnd_gnrc, 1)

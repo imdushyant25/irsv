@@ -596,8 +596,8 @@ async function analyzeMcap(client, fileId) {
         record_id,
         ndc11,
         mcap_savings,
-        ROUND(mcap_savings * 0.25, 2) AS fees,
-        ROUND(mcap_savings * 0.75, 2) AS net_savings
+        ROUND(mcap_savings * 0, 2) AS fees,
+        ROUND(mcap_savings, 2) AS net_savings
       FROM mcap_claims
     ),
     summary AS (
